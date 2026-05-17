@@ -27,6 +27,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from motors import FinancialEngine, EmotionalEngine, PayNotuIntegrator
 from motors.emotional_engine import Review
+from services.scenario_classifier import ScenarioClassifier, ClassifierConfig
 from daily_ohlcv import fetch_ohlcv_from_firestore, run_daily_ohlcv_update
 import borsapy as bp
 import uvicorn
@@ -58,9 +59,13 @@ def _firebase_db():
 
 # ── MOTOR INSTANCE'LARI ───────────────────────────────────────────────────────
 
-financial_engine = FinancialEngine()
-emotional_engine = EmotionalEngine()
-integrator       = PayNotuIntegrator()
+financial_engine    = FinancialEngine()
+emotional_engine    = EmotionalEngine()
+integrator          = PayNotuIntegrator()
+scenario_classifier = ScenarioClassifier(
+    config=ClassifierConfig(),
+    financial_engine=financial_engine,
+)
 
 
 # ── KALIBRASYON ───────────────────────────────────────────────────────────────
@@ -346,6 +351,48 @@ def daily_job():
                     "kap_oda_30g":    kap_haber,
                     "kategori":       f_result.kategori,
                 })
+
+                # ─── Senaryo Classifier (Etap 1.4b) ────────────────────────
+                # Bilinçli resilience: classifier hatası ana skoru etkilemez.
+                # Ayrı try/except + ayrı Firestore update (iki bağımsız
+                # atomic write, tek transaction değil — kasten).
+                try:
+                    xu100 = financial_engine.xu100_returns
+                    if xu100.empty:
+                        logger.info(
+                            f"[{ticker}] scenario_classifier atlandı: "
+                            f"xu100 serisi boş"
+                        )
+                    else:
+                        bundle = scenario_classifier.classify(
+                            ohlcv_df=df,
+                            xu100_series=xu100,
+                            sector_baseline_df=None,
+                            ticker=ticker,
+                            kategori=f_result.kategori,
+                            ipo_date=None,
+                            current_date=date.today(),
+                        )
+                        db.collection("hisseler").document(ticker).update({
+                            "scenarios": {
+                                "classifier_version": bundle.classifier_version,
+                                "total_window_days":  bundle.total_window_days,
+                                "segments": [
+                                    seg.model_dump(mode="json")
+                                    for seg in bundle.segments
+                                ],
+                                "updated_at": fb_firestore.SERVER_TIMESTAMP,
+                            }
+                        })
+                        logger.info(
+                            f"[{ticker}] scenario_classifier OK — "
+                            f"{len(bundle.segments)} segment"
+                        )
+                except Exception as scn_err:
+                    logger.error(
+                        f"[{ticker}] scenario_classifier failed: {scn_err}"
+                    )
+                # ────────────────────────────────────────────────────────────
 
                 logger.info(
                     f"[{i}/{len(ticker_list)}] {ticker} → "
