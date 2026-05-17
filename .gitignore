@@ -1,0 +1,76 @@
+# PayNotu .gitignore
+# Scope: Sadece backend/ ve kök config'leri tracked.
+# Flutter app + mobile + IDE + secrets ignore.
+
+# --- Secrets & Credentials ---
+*-firebase-adminsdk-*.json
+sk-ant-api*.txt
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# --- Flutter / Mobile (scope dışı) ---
+/lib/
+/android/
+/ios/
+/web/
+/windows/
+/macos/
+/linux/
+/assets/
+/functions/
+pubspec.yaml
+pubspec.lock
+analysis_options.yaml
+.metadata
+*.iml
+# Flutter build artifacts (otomatik üretilir)
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# --- IDE / Editor ---
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+**/.claude/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Build / Distribution ---
+build/
+dist/
+*.egg-info/
+
+# --- Logs / Output ---
+*.log
+*.err
+*_backup_v*.json
+*_backup_v*/
+
+# --- Data files (büyük, repo dışı) ---
+firestore_backup_*.json
+calibration_output.txt
+*.zip
+*.exe
+
+# --- Temporary / Junk ---
+*.bak
+*.tmp
+*~

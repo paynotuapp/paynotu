@@ -1,0 +1,19 @@
+# Flutter/Dart Gereksizleri
+build/
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+.dart_tool/
+.idea/
+.gradle/
+*.png
+*.xlsx
+
+# Python Gereksizleri
+__pycache__/
+venv/
+.venv/
+env/

@@ -1,0 +1,10 @@
+{
+  "include": ["backend"],
+  "exclude": ["build", "ios", "android", "functions", "windows", "macos", "linux", "web"],
+  "extraPaths": ["backend"],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportOptionalMemberAccess": "none"
+}

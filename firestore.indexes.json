@@ -1,0 +1,105 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "sozlesmeler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "aktif", "order": "ASCENDING" },
+        { "fieldPath": "sira",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "industry", "order": "ASCENDING" },
+        { "fieldPath": "symbol",   "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sector", "order": "ASCENDING" },
+        { "fieldPath": "symbol", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pazar",  "order": "ASCENDING" },
+        { "fieldPath": "symbol", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "endeksler", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "symbol",    "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif", "order": "ASCENDING" },
+        { "fieldPath": "symbol",    "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif",     "order": "ASCENDING" },
+        { "fieldPath": "paynotu_skoru", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif",     "order": "ASCENDING" },
+        { "fieldPath": "paynotu_skoru", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif",  "order": "ASCENDING" },
+        { "fieldPath": "endeksler",  "arrayConfig": "CONTAINS" },
+        { "fieldPath": "symbol",     "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif", "order": "ASCENDING" },
+        { "fieldPath": "pazar",     "order": "ASCENDING" },
+        { "fieldPath": "symbol",    "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif", "order": "ASCENDING" },
+        { "fieldPath": "sector",    "order": "ASCENDING" },
+        { "fieldPath": "symbol",    "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif", "order": "ASCENDING" },
+        { "fieldPath": "industry",  "order": "ASCENDING" },
+        { "fieldPath": "symbol",    "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

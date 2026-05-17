@@ -1,0 +1,124 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Yardımcı fonksiyonlar ─────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // ── hisseler (ana koleksiyon) ─────────────────────────────────────────
+    // Okuma: herkes (giriş yapılmadan da hisse listesi görünsün)
+    // Yazma: sadece authenticated kullanıcılar
+    match /hisseler/{symbol} {
+      allow read: if true;
+      allow write: if isAuth();
+
+      // yorumlar alt koleksiyonu: hisseler/{symbol}/yorumlar/{uid}
+      match /yorumlar/{uid} {
+        allow read: if isAuth();
+        allow create: if isOwner(uid);
+        allow update: if isOwner(uid);
+        allow delete: if isOwner(uid);
+      }
+
+      // sohbet alt koleksiyonu: hisseler/{symbol}/sohbet/{mesajId}
+      match /sohbet/{mesajId} {
+        // Okuma: giriş yapmış herkes okuyabilir
+        allow read: if isAuth();
+
+        // Oluşturma: authenticated kullanıcı, kendi uid'ini yazmalı
+        allow create: if isAuth()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.mesaj is string
+          && request.resource.data.mesaj.size() > 0
+          && request.resource.data.mesaj.size() <= 1000;
+
+        // Güncelleme: sadece beğeni alanları VEYA mesaj sahibi
+        allow update: if isAuth() && (
+          // Herhangi bir auth kullanıcı beğeni/beğenmeme güncelleyebilir
+          request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['begeniler', 'begenmeyenler'])
+          ||
+          // Mesaj sahibi kendi mesajını düzenleyebilir
+          resource.data.uid == request.auth.uid
+        );
+
+        // Silme: sadece mesaj sahibi silebilir
+        allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    // ── users ─────────────────────────────────────────────────────────────
+    // Kullanıcı profili + tüm alt koleksiyonlar (takip, engellenenler)
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      // takip alt koleksiyonu: users/{uid}/takip/{symbol}
+      match /takip/{symbol} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // engellenenler alt koleksiyonu: users/{uid}/engellenenler/{docId}
+      match /engellenenler/{docId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ── takip (üst düzey — eski yol, geriye dönük uyumluluk) ─────────────
+    match /takip/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /{symbol} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ── raporlar ──────────────────────────────────────────────────────────
+    // Authenticated kullanıcı rapor oluşturabilir; okuyamaz
+    match /raporlar/{docId} {
+      allow create: if isAuth();
+      allow read, update, delete: if false;
+    }
+
+    // ── system_config (motor eşikleri) ────────────────────────────────────
+    // Sadece backend/admin SDK okur; Flutter istemcisi erişemez
+    match /system_config/{docId} {
+      allow read, write: if false;
+    }
+
+    // ── aramalar (arama terimi sayaçları) ─────────────────────────────────
+    // Herkes okuyabilir (sık arananlar listesi); authenticated kullanıcı yazabilir
+    match /aramalar/{terim} {
+      allow read: if true;
+      allow write: if isAuth();
+    }
+
+    // ── geri_bildirimler ──────────────────────────────────────────────────
+    // Authenticated kullanıcı geri bildirim oluşturabilir; okuyamaz
+    match /geri_bildirimler/{docId} {
+      allow create: if isAuth();
+      allow read, update, delete: if false;
+    }
+
+    // ── bagiscilar ────────────────────────────────────────────────────────
+    // Herkes okuyabilir (onur listesi); authenticated kullanıcı oluşturabilir
+    match /bagiscilar/{docId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update, delete: if false;
+    }
+
+    // ── sozlesmeler ───────────────────────────────────────────────────────
+    // Herkese açık okuma (giriş yapılmadan sözleşme metinleri görünsün)
+    match /sozlesmeler/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

@@ -1,0 +1,663 @@
+{
+  "threshold_results": [
+    {
+      "ticker": "ADESE",
+      "decision_date": "2024-08-23",
+      "max_volume_spike": 1.8267,
+      "max_z_score": 3.1825,
+      "max_daily_return": 0.078,
+      "gini": 0.4046,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "AKENR",
+      "decision_date": "2025-12-25",
+      "max_volume_spike": 4.1131,
+      "max_z_score": 2.268,
+      "max_daily_return": 0.1,
+      "gini": 0.5317,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "ALKLC",
+      "decision_date": "2025-11-07",
+      "max_volume_spike": 4.0949,
+      "max_z_score": 2.5746,
+      "max_daily_return": 0.0995,
+      "gini": 0.5195,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "AVHOL",
+      "decision_date": "2025-10-16",
+      "max_volume_spike": 5.3354,
+      "max_z_score": 2.9225,
+      "max_daily_return": 0.0629,
+      "gini": 0.3867,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "AVTUR",
+      "decision_date": "2025-11-24",
+      "max_volume_spike": 3.131,
+      "max_z_score": 2.5007,
+      "max_daily_return": 0.0999,
+      "gini": 0.4858,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "BASGZ",
+      "decision_date": "2024-12-26",
+      "max_volume_spike": 4.3628,
+      "max_z_score": 2.4545,
+      "max_daily_return": 0.0512,
+      "gini": 0.4161,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "BJKAS",
+      "decision_date": "2025-05-30",
+      "max_volume_spike": 3.8992,
+      "max_z_score": 5.1008,
+      "max_daily_return": 0.2725,
+      "gini": 0.583,
+      "window_days_actual": 40
+    },
+    {
+      "ticker": "CEOEM",
+      "decision_date": "2026-01-23",
+      "max_volume_spike": 2.7504,
+      "max_z_score": 2.8179,
+      "max_daily_return": 0.0588,
+      "gini": 0.4556,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "EGEEN",
+      "decision_date": "2023-12-21",
+      "max_volume_spike": 2.0627,
+      "max_z_score": 2.3893,
+      "max_daily_return": 0.0998,
+      "gini": 0.4242,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "EGEEN",
+      "decision_date": "2025-11-13",
+      "max_volume_spike": 3.467,
+      "max_z_score": 2.9793,
+      "max_daily_return": 0.0576,
+      "gini": 0.4376,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "ENSRI",
+      "decision_date": "2024-08-16",
+      "max_volume_spike": 4.28,
+      "max_z_score": 2.6656,
+      "max_daily_return": 0.0996,
+      "gini": 0.4449,
+      "window_days_actual": 41
+    },
+    {
+      "ticker": "FADE",
+      "decision_date": "2022-09-08",
+      "max_volume_spike": 5.3001,
+      "max_z_score": 2.7226,
+      "max_daily_return": 0.1,
+      "gini": 0.4798,
+      "window_days_actual": 40
+    },
+    {
+      "ticker": "FRIGO",
+      "decision_date": "2025-11-24",
+      "max_volume_spike": 2.0141,
+      "max_z_score": 2.9381,
+      "max_daily_return": 0.0452,
+      "gini": 0.4641,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "GLBMD",
+      "decision_date": "2025-12-25",
+      "max_volume_spike": 3.5568,
+      "max_z_score": 3.4691,
+      "max_daily_return": 0.0996,
+      "gini": 0.509,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "IMASM",
+      "decision_date": "2022-09-27",
+      "max_volume_spike": 3.7189,
+      "max_z_score": 2.6647,
+      "max_daily_return": 0.0996,
+      "gini": 0.5466,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "JANTS",
+      "decision_date": "2023-12-21",
+      "max_volume_spike": 5.1822,
+      "max_z_score": 2.5874,
+      "max_daily_return": 0.0995,
+      "gini": 0.4435,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "JANTS",
+      "decision_date": "2025-11-13",
+      "max_volume_spike": 4.9798,
+      "max_z_score": 3.7894,
+      "max_daily_return": 0.0529,
+      "gini": 0.4382,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "KIMMR",
+      "decision_date": "2025-12-23",
+      "max_volume_spike": 6.0871,
+      "max_z_score": 3.5578,
+      "max_daily_return": 0.0897,
+      "gini": 0.456,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "KONYA",
+      "decision_date": "2025-08-07",
+      "max_volume_spike": 3.1681,
+      "max_z_score": 2.0439,
+      "max_daily_return": 0.0545,
+      "gini": 0.4124,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "KRGYO",
+      "decision_date": "2025-02-27",
+      "max_volume_spike": 2.6493,
+      "max_z_score": 2.6173,
+      "max_daily_return": 0.1,
+      "gini": 0.5496,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "MARKA",
+      "decision_date": "2025-04-25",
+      "max_volume_spike": 4.5999,
+      "max_z_score": 2.1409,
+      "max_daily_return": 0.1,
+      "gini": 0.5085,
+      "window_days_actual": 42
+    },
+    {
+      "ticker": "MTRKS",
+      "decision_date": "2024-07-25",
+      "max_volume_spike": 2.7375,
+      "max_z_score": 2.1904,
+      "max_daily_return": 0.085,
+      "gini": 0.4302,
+      "window_days_actual": 40
+    },
+    {
+      "ticker": "NTHOL",
+      "decision_date": "2024-09-10",
+      "max_volume_spike": 2.3416,
+      "max_z_score": 2.9913,
+      "max_daily_return": 0.0997,
+      "gini": 0.4593,
+      "window_days_actual": 41
+    },
+    {
+      "ticker": "NUGYO",
+      "decision_date": "2025-12-25",
+      "max_volume_spike": 8.8584,
+      "max_z_score": 4.0813,
+      "max_daily_return": 0.0997,
+      "gini": 0.501,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "NUGYO",
+      "decision_date": "2026-02-05",
+      "max_volume_spike": 4.4188,
+      "max_z_score": 2.8963,
+      "max_daily_return": 0.0997,
+      "gini": 0.5065,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "NUGYO",
+      "decision_date": "2026-02-06",
+      "max_volume_spike": 4.4888,
+      "max_z_score": 2.9353,
+      "max_daily_return": 0.0997,
+      "gini": 0.5075,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "OZSUB",
+      "decision_date": "2026-03-18",
+      "max_volume_spike": 4.1744,
+      "max_z_score": 2.4853,
+      "max_daily_return": 0.0996,
+      "gini": 0.4878,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "PNSUT",
+      "decision_date": "2025-10-16",
+      "max_volume_spike": 6.1777,
+      "max_z_score": 2.9541,
+      "max_daily_return": 0.0998,
+      "gini": 0.449,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "RAYSG",
+      "decision_date": "2025-12-25",
+      "max_volume_spike": 3.0448,
+      "max_z_score": 2.5306,
+      "max_daily_return": 0.0404,
+      "gini": 0.4431,
+      "window_days_actual": 43
+    },
+    {
+      "ticker": "SKYLP",
+      "decision_date": "2025-11-07",
+      "max_volume_spike": 3.8365,
+      "max_z_score": 2.1902,
+      "max_daily_return": 0.1,
+      "gini": 0.4937,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "ULAS",
+      "decision_date": "2026-04-03",
+      "max_volume_spike": 5.992,
+      "max_z_score": 2.4853,
+      "max_daily_return": 0.1,
+      "gini": 0.5443,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "USAK",
+      "decision_date": "2025-10-16",
+      "max_volume_spike": 4.0375,
+      "max_z_score": 2.7312,
+      "max_daily_return": 0.1,
+      "gini": 0.429,
+      "window_days_actual": 44
+    },
+    {
+      "ticker": "VKING",
+      "decision_date": "2022-09-08",
+      "max_volume_spike": 4.5996,
+      "max_z_score": 2.5876,
+      "max_daily_return": 0.0997,
+      "gini": 0.6226,
+      "window_days_actual": 40
+    }
+  ],
+  "pd_results": [
+    {
+      "ticker": "ADESE",
+      "karar_tarihi": "2024-08-23",
+      "peak_date": "2024-03-07",
+      "pump_duration": 9,
+      "volume_surge": 1.2814,
+      "pump_rate": 0.009406,
+      "dump_rate": -0.00465,
+      "post_peak_volume": 0.7394,
+      "pump_window_days": 9,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "AKENR",
+      "karar_tarihi": "2025-12-25",
+      "peak_date": "2025-11-24",
+      "pump_duration": 61,
+      "volume_surge": 0.9171,
+      "pump_rate": 0.003723,
+      "dump_rate": -0.005654,
+      "post_peak_volume": 2.082,
+      "pump_window_days": 61,
+      "dump_window_days": 24
+    },
+    {
+      "ticker": "ALKLC",
+      "karar_tarihi": "2025-11-07",
+      "peak_date": "2025-10-27",
+      "pump_duration": 61,
+      "volume_surge": 0.3213,
+      "pump_rate": 0.009369,
+      "dump_rate": -0.028361,
+      "post_peak_volume": 1.1098,
+      "pump_window_days": 61,
+      "dump_window_days": 9
+    },
+    {
+      "ticker": "AVHOL",
+      "karar_tarihi": "2025-10-16",
+      "peak_date": "2025-08-25",
+      "pump_duration": 61,
+      "volume_surge": 1.731,
+      "pump_rate": 0.004073,
+      "dump_rate": -0.007697,
+      "post_peak_volume": 0.4951,
+      "pump_window_days": 61,
+      "dump_window_days": 39
+    },
+    {
+      "ticker": "AVTUR",
+      "karar_tarihi": "2025-11-24",
+      "peak_date": "2025-08-07",
+      "pump_duration": 49,
+      "volume_surge": 2.811,
+      "pump_rate": 0.015579,
+      "dump_rate": -0.006053,
+      "post_peak_volume": 0.7116,
+      "pump_window_days": 49,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "BASGZ",
+      "karar_tarihi": "2024-12-26",
+      "peak_date": "2024-07-19",
+      "pump_duration": 14,
+      "volume_surge": 0.4654,
+      "pump_rate": 0.006541,
+      "dump_rate": -0.003541,
+      "post_peak_volume": 0.7664,
+      "pump_window_days": 14,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "BJKAS",
+      "karar_tarihi": "2025-05-30",
+      "peak_date": "2025-01-03",
+      "pump_duration": 24,
+      "volume_surge": 1.6701,
+      "pump_rate": 0.00826,
+      "dump_rate": -0.00746,
+      "post_peak_volume": 0.6099,
+      "pump_window_days": 24,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "CEOEM",
+      "karar_tarihi": "2026-01-23",
+      "peak_date": "2025-08-26",
+      "pump_duration": 22,
+      "volume_surge": 1.8928,
+      "pump_rate": 0.020624,
+      "dump_rate": -0.009001,
+      "post_peak_volume": 0.7676,
+      "pump_window_days": 22,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "EGEEN",
+      "karar_tarihi": "2023-12-21",
+      "peak_date": "2023-12-07",
+      "pump_duration": 61,
+      "volume_surge": 2.6962,
+      "pump_rate": 0.009619,
+      "dump_rate": -0.012539,
+      "post_peak_volume": 1.3889,
+      "pump_window_days": 61,
+      "dump_window_days": 11
+    },
+    {
+      "ticker": "EGEEN",
+      "karar_tarihi": "2025-11-13",
+      "peak_date": "2025-08-26",
+      "pump_duration": 61,
+      "volume_surge": 0.918,
+      "pump_rate": 0.001623,
+      "dump_rate": -0.002009,
+      "post_peak_volume": 0.943,
+      "pump_window_days": 61,
+      "dump_window_days": 57
+    },
+    {
+      "ticker": "ENSRI",
+      "karar_tarihi": "2024-08-16",
+      "peak_date": "2024-03-14",
+      "pump_duration": 19,
+      "volume_surge": 1.7425,
+      "pump_rate": 0.005985,
+      "dump_rate": -0.010567,
+      "post_peak_volume": 0.7568,
+      "pump_window_days": 19,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "FADE",
+      "karar_tarihi": "2022-09-08",
+      "peak_date": "2022-09-06",
+      "pump_duration": 61,
+      "volume_surge": 1.5172,
+      "pump_rate": 0.006872,
+      "dump_rate": -0.051291,
+      "post_peak_volume": 3.3147,
+      "pump_window_days": 61,
+      "dump_window_days": 3
+    },
+    {
+      "ticker": "GLBMD",
+      "karar_tarihi": "2025-12-25",
+      "peak_date": "2025-08-20",
+      "pump_duration": 37,
+      "volume_surge": 1.6362,
+      "pump_rate": 0.010812,
+      "dump_rate": -0.004047,
+      "post_peak_volume": 0.5763,
+      "pump_window_days": 37,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "IMASM",
+      "karar_tarihi": "2022-09-27",
+      "peak_date": "2022-07-29",
+      "pump_duration": 59,
+      "volume_surge": 1.0,
+      "pump_rate": 0.028375,
+      "dump_rate": -0.001012,
+      "post_peak_volume": 1.0515,
+      "pump_window_days": 59,
+      "dump_window_days": 42
+    },
+    {
+      "ticker": "JANTS",
+      "karar_tarihi": "2023-12-21",
+      "peak_date": "2023-10-03",
+      "pump_duration": 61,
+      "volume_surge": 2.6019,
+      "pump_rate": 0.006032,
+      "dump_rate": -0.001733,
+      "post_peak_volume": 0.8212,
+      "pump_window_days": 61,
+      "dump_window_days": 58
+    },
+    {
+      "ticker": "JANTS",
+      "karar_tarihi": "2025-11-13",
+      "peak_date": "2025-08-15",
+      "pump_duration": 61,
+      "volume_surge": 1.2341,
+      "pump_rate": 0.005231,
+      "dump_rate": -0.005413,
+      "post_peak_volume": 1.7138,
+      "pump_window_days": 61,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "KIMMR",
+      "karar_tarihi": "2025-12-23",
+      "peak_date": "2025-09-24",
+      "pump_duration": 61,
+      "volume_surge": 1.0122,
+      "pump_rate": 0.005881,
+      "dump_rate": -0.002659,
+      "post_peak_volume": 0.6195,
+      "pump_window_days": 61,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "KONYA",
+      "karar_tarihi": "2025-08-07",
+      "peak_date": "2025-04-28",
+      "pump_duration": 53,
+      "volume_surge": 1.2114,
+      "pump_rate": 0.001808,
+      "dump_rate": -0.002769,
+      "post_peak_volume": 0.6796,
+      "pump_window_days": 53,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "MARKA",
+      "karar_tarihi": "2025-04-25",
+      "peak_date": "2024-11-07",
+      "pump_duration": 8,
+      "volume_surge": 1.0971,
+      "pump_rate": 0.015748,
+      "dump_rate": -0.003181,
+      "post_peak_volume": 0.9183,
+      "pump_window_days": 8,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "MTRKS",
+      "karar_tarihi": "2024-07-25",
+      "peak_date": "2024-03-11",
+      "pump_duration": 31,
+      "volume_surge": 1.2729,
+      "pump_rate": 0.01704,
+      "dump_rate": -0.003113,
+      "post_peak_volume": 0.8752,
+      "pump_window_days": 31,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "NTHOL",
+      "karar_tarihi": "2024-09-10",
+      "peak_date": "2024-07-25",
+      "pump_duration": 61,
+      "volume_surge": 1.094,
+      "pump_rate": 0.005632,
+      "dump_rate": -0.002134,
+      "post_peak_volume": 1.0646,
+      "pump_window_days": 61,
+      "dump_window_days": 33
+    },
+    {
+      "ticker": "NUGYO",
+      "karar_tarihi": "2025-12-25",
+      "peak_date": "2025-08-20",
+      "pump_duration": 37,
+      "volume_surge": 2.5852,
+      "pump_rate": 0.015218,
+      "dump_rate": -0.004804,
+      "post_peak_volume": 0.478,
+      "pump_window_days": 37,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "NUGYO",
+      "karar_tarihi": "2026-02-05",
+      "peak_date": "2025-08-20",
+      "pump_duration": 8,
+      "volume_surge": 1.6431,
+      "pump_rate": 0.027244,
+      "dump_rate": -0.004804,
+      "post_peak_volume": 0.4026,
+      "pump_window_days": 8,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "NUGYO",
+      "karar_tarihi": "2026-02-06",
+      "peak_date": "2025-08-20",
+      "pump_duration": 8,
+      "volume_surge": 1.6431,
+      "pump_rate": 0.027244,
+      "dump_rate": -0.004804,
+      "post_peak_volume": 0.4026,
+      "pump_window_days": 8,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "PNSUT",
+      "karar_tarihi": "2025-10-16",
+      "peak_date": "2025-09-08",
+      "pump_duration": 61,
+      "volume_surge": 2.8064,
+      "pump_rate": 0.009542,
+      "dump_rate": -7.1e-05,
+      "post_peak_volume": 1.1732,
+      "pump_window_days": 61,
+      "dump_window_days": 29
+    },
+    {
+      "ticker": "RAYSG",
+      "karar_tarihi": "2025-12-25",
+      "peak_date": "2025-09-04",
+      "pump_duration": 48,
+      "volume_surge": 0.9636,
+      "pump_rate": 0.004447,
+      "dump_rate": -0.003032,
+      "post_peak_volume": 0.6577,
+      "pump_window_days": 48,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "SKYLP",
+      "karar_tarihi": "2025-11-07",
+      "peak_date": "2025-11-05",
+      "pump_duration": 61,
+      "volume_surge": 1.9287,
+      "pump_rate": 0.009232,
+      "dump_rate": -0.055531,
+      "post_peak_volume": 0.3615,
+      "pump_window_days": 61,
+      "dump_window_days": 3
+    },
+    {
+      "ticker": "ULAS",
+      "karar_tarihi": "2026-04-03",
+      "peak_date": "2026-03-31",
+      "pump_duration": 61,
+      "volume_surge": 0.9488,
+      "pump_rate": 0.007301,
+      "dump_rate": -0.041965,
+      "post_peak_volume": 4.3482,
+      "pump_window_days": 61,
+      "dump_window_days": 4
+    },
+    {
+      "ticker": "USAK",
+      "karar_tarihi": "2025-10-16",
+      "peak_date": "2025-05-07",
+      "pump_duration": 11,
+      "volume_surge": 2.5072,
+      "pump_rate": 0.03482,
+      "dump_rate": -0.002312,
+      "post_peak_volume": 0.4682,
+      "pump_window_days": 11,
+      "dump_window_days": 61
+    },
+    {
+      "ticker": "VKING",
+      "karar_tarihi": "2022-09-08",
+      "peak_date": "2022-09-06",
+      "pump_duration": 61,
+      "volume_surge": 0.3518,
+      "pump_rate": 0.006823,
+      "dump_rate": -0.024902,
+      "post_peak_volume": 4.2493,
+      "pump_window_days": 61,
+      "dump_window_days": 3
+    }
+  ]
+}

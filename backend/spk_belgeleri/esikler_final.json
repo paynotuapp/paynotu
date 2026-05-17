@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "vaka_sayisi": 46,
+    "pump_gt2_sayisi": 21,
+    "pump_gt2_pct": 45.7,
+    "yuzdelik": 75,
+    "aciklama": "SPK manipülasyon kararlarından türetilen 75. yüzdelik eşikler"
+  },
+  "esikler_p75": {
+    "rsi_max": 95.7627,
+    "hacim_spike": 6.0759,
+    "volatilite": 0.7924,
+    "zscore_max": 6.3868,
+    "gini_fiyat": 0.0912,
+    "gini_hacim": 0.434,
+    "streak_max": 7.0,
+    "pump_orani": 2.7755,
+    "adr_ref_pct": 3.8948
+  },
+  "karsilastirma": {
+    "rsi_max": {
+      "manip_ort": 86.9955,
+      "ref_ort": 53.9234,
+      "fark": 33.072,
+      "p75_esik": 95.7627
+    },
+    "hacim_spike": {
+      "manip_ort": 5.0451,
+      "ref_ort": null,
+      "fark": null,
+      "p75_esik": 6.0759
+    },
+    "volatilite": {
+      "manip_ort": 0.6474,
+      "ref_ort": 0.6247,
+      "fark": 0.0227,
+      "p75_esik": 0.7924
+    },
+    "zscore_max": {
+      "manip_ort": 5.8832,
+      "ref_ort": null,
+      "fark": null,
+      "p75_esik": 6.3868
+    },
+    "gini_fiyat": {
+      "manip_ort": 0.0801,
+      "ref_ort": 0.1569,
+      "fark": -0.0768,
+      "p75_esik": 0.0912
+    },
+    "gini_hacim": {
+      "manip_ort": 0.3934,
+      "ref_ort": 0.4659,
+      "fark": -0.0726,
+      "p75_esik": 0.434
+    },
+    "streak_max": {
+      "manip_ort": 5.7826,
+      "ref_ort": 7.0217,
+      "fark": -1.2391,
+      "p75_esik": 7.0
+    },
+    "pump_orani": {
+      "manip_ort": 2.4679,
+      "ref_ort": null,
+      "fark": null,
+      "p75_esik": 2.7755
+    },
+    "adr_ref_pct": {
+      "manip_ort": 3.3967,
+      "ref_ort": 2.8555,
+      "fark": 0.5412,
+      "p75_esik": 3.8948
+    }
+  },
+  "pump_gt2_ortak_ozellikler": {
+    "manip_rsi_max": {
+      "ort": 93.152,
+      "med": 95.263
+    },
+    "manip_hacim_spike": {
+      "ort": 5.072,
+      "med": 3.976
+    },
+    "manip_volatilite": {
+      "ort": 0.721,
+      "med": 0.776
+    },
+    "manip_zscore_max": {
+      "ort": 10.059,
+      "med": 6.144
+    },
+    "manip_streak_max": {
+      "ort": 7.0,
+      "med": 6.0
+    },
+    "manip_adr": {
+      "ort": 3.459,
+      "med": 3.281
+    }
+  },
+  "pump_gt2_tickerlar": [
+    "TEHOL",
+    "TUREX",
+    "IHGZT",
+    "ARSAN",
+    "NIBAS",
+    "EGEEN",
+    "PENGD",
+    "EUYO",
+    "MARKA",
+    "SAMAT",
+    "KZBGY",
+    "CANTE",
+    "PCILT",
+    "ETYAT",
+    "KIMMR",
+    "EUKYO",
+    "AVTUR",
+    "BJKAS",
+    "JANTS"
+  ]
+}
