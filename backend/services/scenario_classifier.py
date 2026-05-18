@@ -52,9 +52,9 @@ import pandas as pd
 from pydantic import BaseModel, Field, ConfigDict
 
 if TYPE_CHECKING:
-    from backend.motors.financial_engine import FinancialEngine
+    from motors.financial_engine import FinancialEngine
 
-from backend.models.scenario import (
+from models.scenario import (
     ScenarioBundle,
     ScenarioSegment,
     ScenarioType,
