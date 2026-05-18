@@ -720,7 +720,7 @@ def get_score(ticker: str):
         "emotional_score": final.emotional_score,
         "guven_skoru":     f_result.guven_skoru,
 
-        # Eski alan adları (cron_daily_score.py & cron_runner.py için)
+        # Eski alan adı uyumluluğu (legacy field name)
         "financial_score": final.financial_score,
 
         "emotional_grip":  final.emotional_grip,
