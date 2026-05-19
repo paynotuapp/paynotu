@@ -803,27 +803,20 @@ class ScenarioClassifier:
         Returns:
             WindowScan listesi, kronolojik sıralı (start_index, window_size).
         """
-        if context.regime == MarketRegime.IPO_DISCOVERY:
-            # ⚠️ GEÇİCİ DAVRANIŞ — Etap 1.2b-1 kapsamında IPO rejiminde boş liste dönüyoruz.
-            # KALICI ÇÖZÜM Etap 1.2b-3'te eklenecek:
-            #   - IPO rejiminde de scan yapılacak
-            #   - Üretilen segmentlere düşük confidence (config.ipo_confidence_factor) uygulanacak
-            #   - context_ratio decay ile birleştirilecek
-            # Etap 1.2b-3'e geçildiğinde bu erken-return kaldırılacak.
-            return []
+        # IPO_DISCOVERY rejimi classify() üst katmanında yakalanıyor (Etap 2.0a-impl).
+        # Bu fonksiyon o regime'de çağrılmaz.
 
         scans: List[WindowScan] = []
         total_days = len(ohlcv_df)
         lookback = context.required_lookback_days
-        # Etap 2.0 — sliding window tüm tarihsel veriyi tarar.
-        # context_df adaptif: erken window'larda küçük, geç window'larda
-        # tam lookback kadar büyür. Confidence decay _compute_context_decay
-        # üzerinden context.available_history / required_lookback ile uygulanır.
-        _MIN_CONTEXT = 60
 
         for window_size in self._config.window_sizes:
+            # Segment kadar (en az 60) context şart — Z-score baseline için.
+            # Lookback tam karşılanmıyorsa kısa context kullanılır;
+            # sqrt decay zaten kısa veride confidence'ı düşürür.
+            min_context = max(60, window_size)
             step = max(1, window_size // 2)
-            start_idx = _MIN_CONTEXT
+            start_idx = min_context
 
             while start_idx + window_size <= total_days:
                 end_idx = start_idx + window_size
@@ -831,7 +824,7 @@ class ScenarioClassifier:
                 context_start = max(0, start_idx - lookback)
                 context_df = ohlcv_df.iloc[context_start:end_idx]
 
-                if len(context_df) < _MIN_CONTEXT:
+                if len(context_df) < min_context:
                     start_idx += step
                     continue
 
