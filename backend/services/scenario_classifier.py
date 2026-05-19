@@ -328,7 +328,14 @@ class ClassifierConfig(BaseModel):
     kategori_bias_temiz: float = Field(default=0.00, ge=-1.0, le=1.0)
 
     # Statistical baseline uzunluğu (rolling, financial_engine ile uyumlu).
-    rolling_baseline_days: int = Field(default=1825, ge=30)
+    rolling_baseline_days: int = Field(
+        default=1250, ge=100, le=5000,
+        description=(
+            "Z-score baseline için iş günü sayısı (5 takvim yılı ≈ "
+            "1250 iş günü). 2021-01-01 milatından itibaren beklenen "
+            "veri uzunluğuyla uyumlu."
+        ),
+    )
 
     # Lookback buffer (rolling_baseline'a eklenecek ek context).
     lookback_buffer_days: int = Field(default=10, ge=0)
@@ -662,6 +669,21 @@ _TEMPLATE_REGISTRY: dict[ScenarioType, tuple[TemplateVariants, DominantSignalLab
                                    # olarak korunur
         ),
     ),
+    ScenarioType.IPO_PERIOD: (
+        TemplateVariants(
+            short="İlk Halka Arz",
+            medium="İlk Halka Arz Dönemi",
+            long="Hisse halka arz sonrası ilk dönemde — yeterli "
+                 "geçmiş veri bulunmadığından istatistiksel anomali "
+                 "analizi uygulanamadı.",
+        ),
+        DominantSignalLabels(
+            fiyat="ipo_donemi",
+            hacim="ipo_donemi",
+            volatilite="ipo_donemi",
+            pump="ipo_donemi",
+        ),
+    ),
 }
 
 
@@ -793,10 +815,15 @@ class ScenarioClassifier:
         scans: List[WindowScan] = []
         total_days = len(ohlcv_df)
         lookback = context.required_lookback_days
+        # Etap 2.0 — sliding window tüm tarihsel veriyi tarar.
+        # context_df adaptif: erken window'larda küçük, geç window'larda
+        # tam lookback kadar büyür. Confidence decay _compute_context_decay
+        # üzerinden context.available_history / required_lookback ile uygulanır.
+        _MIN_CONTEXT = 60
 
         for window_size in self._config.window_sizes:
             step = max(1, window_size // 2)
-            start_idx = lookback
+            start_idx = _MIN_CONTEXT
 
             while start_idx + window_size <= total_days:
                 end_idx = start_idx + window_size
@@ -804,7 +831,7 @@ class ScenarioClassifier:
                 context_start = max(0, start_idx - lookback)
                 context_df = ohlcv_df.iloc[context_start:end_idx]
 
-                if len(context_df) < lookback:
+                if len(context_df) < _MIN_CONTEXT:
                     start_idx += step
                     continue
 
@@ -1039,8 +1066,9 @@ class ScenarioClassifier:
         elif context.regime == MarketRegime.INSUFFICIENT_CONTEXT:
             if context.required_lookback_days <= 0:
                 return 1.0  # defansif — sıfıra bölünme yok
-            ratio = context.available_history_days / context.required_lookback_days
-            return float(min(1.0, max(0.0, ratio)))
+            raw_ratio = context.available_history_days / context.required_lookback_days
+            # Sqrt decay — kısa veri için daha yumuşak (Etap 2.0 D-Y kararı)
+            return float(min(1.0, max(0.0, raw_ratio ** 0.5)))
 
         else:
             return 1.0  # bilinmeyen regime — defansif, decay yok
@@ -1797,6 +1825,44 @@ class ScenarioClassifier:
             subscores=final_cand.subscores,
         )
 
+    def _build_ipo_period_segment(
+        self,
+        ohlcv_df: pd.DataFrame,
+        context: ClassifierContext,
+    ) -> ScenarioSegment:
+        """
+        IPO discovery rejiminde tüm veri aralığını tek segment olarak işaretler.
+        """
+        total_days = len(ohlcv_df)
+
+        if isinstance(ohlcv_df.index, pd.DatetimeIndex):
+            start_date = _to_iso_date(ohlcv_df.index[0])
+            end_date = _to_iso_date(ohlcv_df.index[-1])
+        else:
+            start_date = ""
+            end_date = ""
+
+        variants, _ = _TEMPLATE_REGISTRY[ScenarioType.IPO_PERIOD]
+        description = (
+            f"Hisse son {total_days} iş günüdür işlemde. "
+            f"İstatistiksel baseline için yeterli geçmiş veri "
+            f"bulunmadığından klasik anomali analizi uygulanmadı."
+        )
+
+        return ScenarioSegment(
+            type=ScenarioType.IPO_PERIOD,
+            start_index=0,
+            end_index=total_days,
+            start_date=start_date,
+            end_date=end_date,
+            title=variants.medium,
+            description=description,
+            confidence=1.0,
+            subscores=AnomalyComponents(
+                fiyat=0.0, hacim=0.0, volatilite=0.0, pump=0.0,
+            ),
+        )
+
     def _build_scenario_bundle(
         self,
         segments: List[ScenarioSegment],
@@ -1861,6 +1927,16 @@ class ScenarioClassifier:
             available_history_days=available_history,
             required_lookback_days=required_lookback,
         )
+
+        # Etap 2.0 — IPO_DISCOVERY rejiminde IPO_PERIOD segment üret
+        if regime == MarketRegime.IPO_DISCOVERY:
+            ipo_segment = self._build_ipo_period_segment(
+                ohlcv_df=ohlcv_df, context=context,
+            )
+            return self._build_scenario_bundle(
+                segments=[ipo_segment],
+                total_window_days=available_history,
+            )
 
         # Aşama 1: Window scanning
         window_scans = self.scan_windows(

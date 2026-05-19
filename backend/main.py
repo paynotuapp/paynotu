@@ -307,8 +307,10 @@ def daily_job():
 
         ok = fail = 0
         ticker_list = sorted(ticker_docs.keys())
+        # Etap 2.0 — Milat tarihi: 2021-01-01 (kullanıcı kararı A2)
+        # Eski timedelta(days=1825) takvim gün / iş günü uyumsuzluğu yaratıyordu.
         _end_date   = date.today().strftime("%Y-%m-%d")
-        _start_date = (date.today() - timedelta(days=1825)).strftime("%Y-%m-%d")
+        _start_date = "2021-01-01"
 
         for i, ticker in enumerate(ticker_list, 1):
             try:
