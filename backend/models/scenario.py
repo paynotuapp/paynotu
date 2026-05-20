@@ -27,6 +27,7 @@ class ScenarioType(str, Enum):
     MANIPULATION = "manipulation"
     CONSOLIDATION = "consolidation"
     IPO_PERIOD = "ipo_period"
+    SPK_PUMP_DUMP = "spk_pump_dump"
 
 
 class AnomalyComponents(BaseModel):

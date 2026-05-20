@@ -60,6 +60,11 @@ from models.scenario import (
     ScenarioType,
     AnomalyComponents,
 )
+from services.spk_calibration import (
+    SPKCalibration,
+    extract_pump_dump_metrics,
+    tier_from_similarity,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -369,6 +374,15 @@ class ClassifierConfig(BaseModel):
         description="Aynı tip + priority segmentlerde merge için minimum overlap oranı.",
     )
 
+    # SPK Pump-Dump parmak izi eşleştirme parametreleri (Etap 2.2)
+    spk_min_window_size: int = Field(
+        default=60, ge=1,
+        description="SPK match yalnızca bu uzunluk veya üzeri window'larda hesaplanır.",
+    )
+    spk_tier1_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    spk_tier2_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+    spk_tier3_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
+
 
 # ============================================================
 # CONTEXT BUNDLE — classifier'ın elindeki tüm girdi paketi
@@ -409,6 +423,9 @@ class WindowScan(BaseModel):
     window_size: int = Field(..., ge=1)
     # Relative metrics — XU100 ve sektör baseline'a göre normalize edilmiş alt skorlar
     relative_subscores: AnomalyComponents
+    # SPK parmak izi eşleştirme sonuçları (Etap 2.2)
+    spk_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    spk_tier: int = Field(default=0, ge=0, le=3)
 
 
 # ============================================================
@@ -518,6 +535,7 @@ class FinalScenarioCandidate(BaseModel):
 _SCENARIO_PRIORITY: dict[ScenarioType, int] = {
     ScenarioType.MANIPULATION: 6,
     ScenarioType.PUMP: 5,
+    ScenarioType.SPK_PUMP_DUMP: 5,  # PUMP ile aynı seviye — paralel kanal
     ScenarioType.DISTRIBUTION: 4,
     ScenarioType.BREAKOUT: 3,
     ScenarioType.ACCUMULATION: 2,
@@ -684,6 +702,19 @@ _TEMPLATE_REGISTRY: dict[ScenarioType, tuple[TemplateVariants, DominantSignalLab
             pump="ipo_donemi",
         ),
     ),
+    ScenarioType.SPK_PUMP_DUMP: (
+        TemplateVariants(
+            short="Pump-Dump Şüphesi",
+            medium="SPK Pump-Dump Karakteri",
+            long="Uzun Dönem SPK Pump-Dump Şüphesi",
+        ),
+        DominantSignalLabels(
+            fiyat="Aşırı Fiyat Hareketiyle",
+            hacim="Hacim Patlamasıyla",
+            volatilite="Yüksek Volatiliteyle",
+            pump="Ani Yükseliş Sinyaliyle",
+        ),
+    ),
 }
 
 
@@ -715,6 +746,24 @@ class ScenarioClassifier:
         """
         self._config = config
         self._engine = financial_engine
+        self._spk_calibration: Optional[SPKCalibration] = self._try_load_spk_calibration()
+
+    def _try_load_spk_calibration(self) -> Optional[SPKCalibration]:
+        """
+        motor_config.json + esikler_final.json'dan SPK kalibrasyonunu yükler.
+        Dosya yoksa veya yükleme başarısız olursa None döner — graceful degradation.
+        """
+        try:
+            from pathlib import Path
+            base = Path(__file__).parent.parent  # backend/
+            motor_path = base.parent / "motor_config.json"
+            esikler_path = base / "spk_belgeleri" / "esikler_final.json"
+            if not motor_path.exists():
+                return None
+            return SPKCalibration.load_from_files(motor_path, esikler_path)
+        except Exception as exc:
+            _logger.warning("SPK kalibrasyonu yüklenemedi: %s", exc)
+            return None
 
     @classmethod
     def from_firestore_config(
@@ -847,6 +896,14 @@ class ScenarioClassifier:
                     start_date = ""
                     end_date = ""
 
+                spk_similarity = 0.0
+                spk_tier = 0
+                if (self._spk_calibration is not None
+                        and window_size >= self._config.spk_min_window_size):
+                    _metrics = extract_pump_dump_metrics(segment_df)
+                    spk_similarity = self._spk_calibration.pump_dump_fingerprint.match(_metrics)
+                    spk_tier = tier_from_similarity(spk_similarity)
+
                 scans.append(WindowScan(
                     start_index=start_idx,
                     end_index=end_idx,
@@ -854,6 +911,8 @@ class ScenarioClassifier:
                     end_date=end_date,
                     window_size=window_size,
                     relative_subscores=subscores,
+                    spk_similarity=spk_similarity,
+                    spk_tier=spk_tier,
                 ))
 
                 start_idx += step
@@ -1121,6 +1180,52 @@ class ScenarioClassifier:
             ))
 
         return finalized
+
+    # --------------------------------------------------------
+    # SPK CANDIDATE ÜRETICI
+    # --------------------------------------------------------
+
+    def _build_spk_candidates(
+        self,
+        scans: List[WindowScan],
+        context: ClassifierContext,
+    ) -> List[LabeledWindow]:
+        """
+        SPK parmak izi eşleşmesi Tier 1+ olan window'ları SPK_PUMP_DUMP candidate'e dönüştürür.
+
+        Confidence = similarity × (1 + kategori_bias) × sqrt(context_ratio)
+        Mevcut threshold-based pipeline'a dokunmaz — paralel, bağımsız kanal.
+        """
+        if self._spk_calibration is None:
+            return []
+
+        bias_map = {
+            "AKTIF_PD": self._config.kategori_bias_aktif_pd,
+            "YENI_PD": self._config.kategori_bias_yeni_pd,
+            "GECMIS_PD": self._config.kategori_bias_gecmis_pd,
+            "TEMIZ": self._config.kategori_bias_temiz,
+        }
+        kategori_bias = bias_map.get(context.kategori, 0.0)
+
+        context_ratio = min(
+            1.0,
+            context.available_history_days / max(1, context.required_lookback_days),
+        )
+        sqrt_decay = context_ratio ** 0.5
+
+        candidates: List[LabeledWindow] = []
+        for scan in scans:
+            if scan.spk_tier < 1:
+                continue
+            raw = scan.spk_similarity * (1.0 + kategori_bias)
+            confidence = float(min(1.0, max(0.0, raw * sqrt_decay)))
+            candidates.append(LabeledWindow(
+                scan=scan,
+                scenario_type=ScenarioType.SPK_PUMP_DUMP,
+                base_confidence=confidence,
+            ))
+
+        return candidates
 
     # --------------------------------------------------------
     # RULE-BASED LABELER
@@ -1945,6 +2050,9 @@ class ScenarioClassifier:
             lw = self._label_window(scan, context)
             if lw is not None:
                 labeled.append(lw)
+
+        # Aşama 2b: SPK parmak izi candidates (paralel kanal — threshold logic'e dokunmaz)
+        labeled.extend(self._build_spk_candidates(window_scans, context))
 
         # Aşama 3: Structural conflict resolution
         resolved = self._resolve_conflicts(labeled, context)
