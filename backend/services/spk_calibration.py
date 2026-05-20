@@ -54,13 +54,16 @@ class PumpDumpFingerprint(BaseModel):
 
     def match(self, metrics: dict) -> float:
         """
-        Compute pump-dump similarity (0..1) based on 5-dimensional match.
+        Compute pump-dump similarity (0..1) with mean-centered match.
 
         For each dimension:
-        - Value in [p10, p90] range -> match = 1.0
-        - Outside -> gaussian decay based on std
+        - Value at mean: m = 1.0 (perfect match)
+        - Value at p10/p90 boundary: m = 0.5 (weak signal)
+        - Value outside [p10, p90]: gaussian decay with std (unchanged)
 
-        Returns mean of 5 dimensional matches.
+        Strict discrimination: blue-chip-like patterns (volume_surge≈1,
+        pump_rate≈0.01) only score in [0.50, 0.75] range, while true
+        pump-dump patterns (near-mean on multiple dimensions) score >0.85.
         """
         dimensions = [
             ('pump_duration', metrics.get('pump_duration', 0)),
@@ -78,13 +81,21 @@ class PumpDumpFingerprint(BaseModel):
             std = getattr(self, f'{name}_std')
 
             if p10 <= value <= p90:
-                m = 1.0
+                # Range içi: mean'e yakınlık ile [0.5, 1.0]
+                # Asimetrik aralık olabilir (mean p10/p90'a eşit uzaklıkta değil)
+                half_range = max(p90 - mean, mean - p10, 1e-9)
+                distance = abs(value - mean)
+                # Lineer interpolasyon: mean=1.0, kenar=0.5
+                m = 1.0 - (distance / half_range) * 0.5
+                m = max(0.5, min(1.0, m))
             else:
+                # Range dışı: gaussian decay (eskisi gibi)
                 if std > 1e-9:
                     z = abs(value - mean) / std
                     m = math.exp(-0.5 * z * z)
                 else:
                     m = 0.0
+
             matches.append(m)
 
         return float(np.mean(matches))

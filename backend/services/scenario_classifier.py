@@ -382,6 +382,15 @@ class ClassifierConfig(BaseModel):
     spk_tier1_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     spk_tier2_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     spk_tier3_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
+    # SPK segment uzunluk kısıtı (Commit 12 — false positive fix)
+    spk_max_segment_days: int = Field(
+        default=180, ge=30, le=730,
+        description=(
+            "SPK_PUMP_DUMP segment'lerinin maksimum uzunluğu (iş günü). "
+            "pump_duration_p90=61, pump+dump fazı ~120 gün. 180 gün üst sınır "
+            "cömert ama 5-yıllık tek dev segment anomalisini önler."
+        ),
+    )
 
 
 # ============================================================
@@ -1227,6 +1236,42 @@ class ScenarioClassifier:
 
         return candidates
 
+    def _enforce_spk_max_segment_length(
+        self,
+        segments: List["ScenarioSegment"],
+    ) -> List["ScenarioSegment"]:
+        """
+        SPK_PUMP_DUMP segment'lerinin maksimum uzunluğunu kısıtlar.
+
+        Birleşmiş SPK segment'leri overlap merger'dan 5 yıllık tek blok
+        olarak çıkabilir. Bu metot bu tür segment'leri son
+        spk_max_segment_days penceresine kısıtlar.
+
+        Diğer scenario tipleri etkilenmez.
+        """
+        max_len = self._config.spk_max_segment_days
+        result: List["ScenarioSegment"] = []
+
+        for seg in segments:
+            if seg.type != ScenarioType.SPK_PUMP_DUMP:
+                result.append(seg)
+                continue
+
+            seg_len = seg.end_index - seg.start_index
+            if seg_len <= max_len:
+                result.append(seg)
+                continue
+
+            # Son max_len penceresini al (en güncel, büyük olasılıkla en yüksek)
+            new_start = seg.end_index - max_len
+            try:
+                new_seg = seg.model_copy(update={"start_index": new_start})
+            except Exception:
+                new_seg = seg.copy(update={"start_index": new_start})
+            result.append(new_seg)
+
+        return result
+
     # --------------------------------------------------------
     # RULE-BASED LABELER
     # --------------------------------------------------------
@@ -2062,6 +2107,9 @@ class ScenarioClassifier:
 
         # Aşama 5: Presentation layer
         segments = [self._build_scenario_segment(f) for f in finalized]
+
+        # Aşama 5b: SPK segment uzunluk kısıtı (Commit 12 — false positive fix)
+        segments = self._enforce_spk_max_segment_length(segments)
 
         # Aşama 6: Bundle assembly
         return self._build_scenario_bundle(
