@@ -63,6 +63,7 @@ from models.scenario import (
 from services.spk_calibration import (
     SPKCalibration,
     extract_pump_dump_metrics,
+    extract_enhanced_metrics,
     tier_from_similarity,
 )
 
@@ -767,9 +768,10 @@ class ScenarioClassifier:
             base = Path(__file__).parent.parent  # backend/
             motor_path = base.parent / "motor_config.json"
             esikler_path = base / "spk_belgeleri" / "esikler_final.json"
+            enhanced_path = base / "spk_belgeleri" / "esikler_enhanced.json"
             if not motor_path.exists():
                 return None
-            return SPKCalibration.load_from_files(motor_path, esikler_path)
+            return SPKCalibration.load_from_files(motor_path, esikler_path, enhanced_path)
         except Exception as exc:
             _logger.warning("SPK kalibrasyonu yüklenemedi: %s", exc)
             return None
@@ -909,8 +911,20 @@ class ScenarioClassifier:
                 spk_tier = 0
                 if (self._spk_calibration is not None
                         and window_size >= self._config.spk_min_window_size):
-                    _metrics = extract_pump_dump_metrics(segment_df)
-                    spk_similarity = self._spk_calibration.pump_dump_fingerprint.match(_metrics)
+                    cal = self._spk_calibration
+                    if cal.enhanced_fingerprint is not None:
+                        # 12-dim match — XU100 pencereyi kümülatif fiyata çevir
+                        xu100_seg = xu100_series.reindex(segment_df.index)
+                        if xu100_seg.notna().sum() >= 10:
+                            xu100_close = (1 + xu100_seg.fillna(0)).cumprod() * 100.0
+                            xu100_df = pd.DataFrame({"Close": xu100_close}, index=xu100_seg.index)
+                        else:
+                            xu100_df = None
+                        _metrics = extract_enhanced_metrics(segment_df, xu100_df)
+                        spk_similarity = cal.enhanced_fingerprint.match(_metrics)
+                    else:
+                        _metrics = extract_pump_dump_metrics(segment_df)
+                        spk_similarity = cal.pump_dump_fingerprint.match(_metrics)
                     spk_tier = tier_from_similarity(spk_similarity)
 
                 scans.append(WindowScan(
