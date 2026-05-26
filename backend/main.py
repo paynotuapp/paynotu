@@ -275,7 +275,10 @@ def _motor_detay_payload(f_result) -> dict:
             "pd_dd":         f_result.temel_pd_dd,
             "fk":            f_result.temel_fk,
             "net_kar_marji": f_result.temel_net_kar_marji,
+            "ok_buyume":     f_result.temel_ok_buyume,
+            "borc_favok":    f_result.temel_borc_favok,
             "kaynak":        f_result.temel_kaynak,
+            "period":        f_result.temel_period,
         },
 
         # ── Zaman damgası ───────────────────────────────────────────────────
@@ -643,6 +646,301 @@ def _yorumlar_oku(ticker: str, db) -> list[Review]:
 
 # ── ENDPOİNTLER ──────────────────────────────────────────────────────────────
 
+# ── CANLI / GECİKMELİ FİYAT ENDPOINTİ ────────────────────────────────────────
+# NOT:
+# - Firestore'a fiyat yazmaz.
+# - Sadece detay ekranı açıkken Flutter tarafından çağrılır.
+# - Aynı hisse için kısa süre içinde tekrar borsapy çağrısı yapmamak için
+#   in-memory cache kullanır.
+_QUOTE_CACHE: dict[str, dict] = {}
+QUOTE_CACHE_TTL_SECONDS = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "60"))
+QUOTE_DELAY_MINUTES = int(os.getenv("QUOTE_DELAY_MINUTES", "15"))
+QUOTE_LOOKBACK_DAYS = int(os.getenv("QUOTE_LOOKBACK_DAYS", "450"))
+
+
+def _normalize_quote_ticker(ticker: str) -> str:
+    """
+    PayNotu sembol standardı:
+    - A1CAP, THYAO, ASELS gibi BIST sembolleri
+    - .IS eki kullanılmaz
+    """
+    return (ticker or "").upper().strip().replace(".IS", "")
+
+
+def _close_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Borsapy OHLCV DataFrame'inden temiz Close serisi üretir.
+    Index'i gün bazına normalize eder ki hisse / XU100 getirileri
+    ve hacim lookup aynı index formatında çalışsın.
+    """
+    if df is None or df.empty or "Close" not in df.columns:
+        return pd.Series(dtype=float)
+
+    close = df["Close"].dropna().astype(float).copy()
+    close.index = pd.DatetimeIndex(pd.to_datetime(close.index).date)
+    close = close[close > 0]
+
+    return close.sort_index()
+
+
+def _volume_for_last_close(df: pd.DataFrame, close: pd.Series) -> int | None:
+    """
+    Son geçerli close gününün hacmini döndürür.
+    _close_series index'i normalize ettiği için df index'ini de normalize ederek
+    lookup yapar. Aksi halde hacim alanı gereksiz yere null kalabilir.
+    """
+    if df is None or df.empty or "Volume" not in df.columns or close.empty:
+        return None
+
+    try:
+        volume = df["Volume"].dropna().astype(float).copy()
+        volume.index = pd.DatetimeIndex(pd.to_datetime(volume.index).date)
+        volume = volume.sort_index()
+
+        son_index = close.index[-1]
+        if son_index not in volume.index:
+            return None
+
+        hacim_raw = volume.loc[son_index]
+
+        # Aynı güne birden fazla satır düşerse son değeri al.
+        if isinstance(hacim_raw, pd.Series):
+            hacim_raw = hacim_raw.iloc[-1]
+
+        if pd.notna(hacim_raw):
+            return int(float(hacim_raw))
+    except Exception as e:
+        logger.debug(f"[quote] hacim okunamadı: {e}")
+
+    return None
+
+
+def _rsi_14(close: pd.Series, period: int = 14) -> float | None:
+    close = close.dropna().astype(float)
+
+    if len(close) < period + 1:
+        return None
+
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+
+    avg_gain = gain.ewm(
+        alpha=1 / period,
+        adjust=False,
+        min_periods=period,
+    ).mean()
+
+    avg_loss = loss.ewm(
+        alpha=1 / period,
+        adjust=False,
+        min_periods=period,
+    ).mean()
+
+    last_loss = avg_loss.iloc[-1]
+
+    if pd.isna(last_loss):
+        return None
+
+    if last_loss == 0:
+        return 100.0
+
+    rs = avg_gain.iloc[-1] / last_loss
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    return round(float(rsi), 2)
+
+
+def _beta_vs_xu100(stock_close: pd.Series) -> float | None:
+    """
+    Beta = hissenin günlük getirileri ile XU100 günlük getirilerinin kovaryansı
+           / XU100 getirilerinin varyansı
+
+    Firestore'a yazmaz. Quote endpoint yanıtına beta ekler.
+    """
+    try:
+        if stock_close is None or len(stock_close) < 60:
+            return None
+
+        start_date = stock_close.index.min().strftime("%Y-%m-%d")
+        end_date = stock_close.index.max().strftime("%Y-%m-%d")
+
+        xu100_df = bp.Ticker("XU100").history(
+            start=start_date,
+            end=end_date,
+        )
+
+        xu100_close = _close_series(xu100_df)
+
+        if xu100_close.empty or len(xu100_close) < 60:
+            return None
+
+        stock_ret = stock_close.pct_change().dropna()
+        market_ret = xu100_close.pct_change().dropna()
+
+        joined = pd.concat(
+            [
+                stock_ret.rename("stock"),
+                market_ret.rename("market"),
+            ],
+            axis=1,
+            join="inner",
+        ).dropna()
+
+        if len(joined) < 60:
+            return None
+
+        market_variance = float(joined["market"].var())
+
+        if market_variance <= 1e-12:
+            return None
+
+        covariance = float(joined["stock"].cov(joined["market"]))
+        beta = covariance / market_variance
+
+        return round(float(beta), 4)
+
+    except Exception as e:
+        logger.warning(f"[quote] beta hesaplanamadı: {e}")
+        return None
+
+
+def _quote_payload_from_borsapy(ticker: str) -> dict:
+    """
+    Borsapy üzerinden fiyat verisi çeker.
+    Firestore'a yazmaz; sadece API response payload'ı üretir.
+
+    Beklenen kolonlar:
+    - Close
+    - Volume opsiyonel
+    """
+    ticker = _normalize_quote_ticker(ticker)
+
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker zorunlu")
+
+    # Beta ve RSI için kısa pencere yetmez; varsayılan 450 takvim günü.
+    end_date = date.today().strftime("%Y-%m-%d")
+    start_date = (date.today() - timedelta(days=QUOTE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+
+    try:
+        df = bp.Ticker(ticker).history(start=start_date, end=end_date)
+    except Exception as e:
+        logger.error(f"[quote] {ticker} borsapy hatası: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"{ticker} fiyat verisi şu an alınamadı",
+        )
+
+    if df is None or df.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{ticker} için fiyat verisi bulunamadı",
+        )
+
+    df = df.sort_index().copy()
+
+    if "Close" not in df.columns:
+        raise HTTPException(
+            status_code=500,
+            detail=f"{ticker} verisinde Close kolonu yok",
+        )
+
+    close = _close_series(df)
+
+    if close.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{ticker} için geçerli kapanış/fiyat verisi yok",
+        )
+
+    son_fiyat = float(close.iloc[-1])
+
+    onceki_fiyat = (
+        float(close.iloc[-2])
+        if len(close) >= 2
+        else son_fiyat
+    )
+
+    hafta_ref = (
+        float(close.iloc[-6])
+        if len(close) >= 6
+        else onceki_fiyat
+    )
+
+    gunluk_degisim_yuzde = (
+        ((son_fiyat / onceki_fiyat) - 1.0) * 100.0
+        if onceki_fiyat > 0
+        else 0.0
+    )
+
+    haftalik_degisim_yuzde = (
+        ((son_fiyat / hafta_ref) - 1.0) * 100.0
+        if hafta_ref > 0
+        else 0.0
+    )
+
+    return {
+        "symbol": ticker,
+        "fiyat": round(son_fiyat, 2),
+        "gunluk_degisim_yuzde": round(gunluk_degisim_yuzde, 2),
+        "haftalik_degisim_yuzde": round(haftalik_degisim_yuzde, 2),
+        "toplam_islem_hacmi": _volume_for_last_close(df, close),
+        "rsi_14": _rsi_14(close),
+        "beta": _beta_vs_xu100(close),
+        "para_birimi": "TRY",
+        "borsa": "BIST",
+        "fiyat_kaynagi": "borsapy",
+        "fiyat_gecikme_dk": QUOTE_DELAY_MINUTES,
+        "fiyat_guncelleme_tarihi": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/quote/{ticker}")
+def get_quote(ticker: str):
+    """
+    Detay ekranı fiyat endpoint'i.
+
+    Kullanım:
+      GET /quote/A1CAP
+
+    Davranış:
+    - Firestore'a yazmaz.
+    - Cache tazeyse borsapy'ye tekrar gitmez.
+    - Cache süresi env ile değiştirilebilir:
+        QUOTE_CACHE_TTL_SECONDS=60
+    """
+    ticker = _normalize_quote_ticker(ticker)
+
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker zorunlu")
+
+    now_ts = time.time()
+    cached = _QUOTE_CACHE.get(ticker)
+
+    if cached is not None:
+        age = now_ts - cached["ts"]
+        if age <= QUOTE_CACHE_TTL_SECONDS:
+            return {
+                **cached["payload"],
+                "cache": True,
+                "cache_age_seconds": round(age, 1),
+            }
+
+    payload = _quote_payload_from_borsapy(ticker)
+
+    _QUOTE_CACHE[ticker] = {
+        "ts": now_ts,
+        "payload": payload,
+    }
+
+    return {
+        **payload,
+        "cache": False,
+        "cache_age_seconds": 0,
+    }
+
+
 @app.get("/")
 def anasayfa():
     return {
@@ -727,7 +1025,7 @@ def get_score(ticker: str):
 
         "emotional_grip":  final.emotional_grip,
         "grip_intensity":  final.grip_intensity,
-        "is_speculative":  final.is_speculative,
+        "is_sentiment_divergence":  final.is_sentiment_divergence,
         "has_reviews":     final.has_reviews,
 
         "details": {
@@ -760,7 +1058,10 @@ def get_score(ticker: str):
             "pd_dd":         f_result.temel_pd_dd,
             "fk":            f_result.temel_fk,
             "net_kar_marji": f_result.temel_net_kar_marji,
+            "ok_buyume":     f_result.temel_ok_buyume,
+            "borc_favok":    f_result.temel_borc_favok,
             "kaynak":        f_result.temel_kaynak,
+            "period":        f_result.temel_period,
         },
         "motor_detay": _motor_detay_payload(f_result),
     }
@@ -821,7 +1122,10 @@ def get_financial_score(ticker: str):
             "pd_dd":         result.temel_pd_dd,
             "fk":            result.temel_fk,
             "net_kar_marji": result.temel_net_kar_marji,
+            "ok_buyume":     result.temel_ok_buyume,
+            "borc_favok":    result.temel_borc_favok,
             "kaynak":        result.temel_kaynak,
+            "period":        result.temel_period,
         },
     }
 
@@ -876,14 +1180,17 @@ def yorumu_skorla(body: dict):
     try:
         db = _firebase_db()
         hisse_doc = db.collection('hisseler').document(hisse_kodu).get()
-        finansal = 5.0
+        spek_score = 5.0
         if hisse_doc.exists:
-            finansal = float((hisse_doc.to_dict() or {}).get('finansal_taban', 5.0) or 5.0)
+            spek_score = float((hisse_doc.to_dict() or {}).get('finansal_taban', 5.0) or 5.0)
 
-        is_speculative = duygusal > 8.0 and finansal < 4.0
-        e_w = 0.10 if is_speculative else 0.35
-        paynotu = round((1.0 - e_w) * finansal + e_w * duygusal, 4)
-        paynotu = max(0.0, min(10.0, paynotu))
+        spek_score  = max(0.0, min(10.0, spek_score))
+        duygusal    = max(0.0, min(10.0, duygusal))
+        r_h         = 10.0 - duygusal
+        divergence  = spek_score > 7.0 and r_h < 3.0
+        f_w         = 0.90 if divergence else 0.65
+        e_w         = 0.10 if divergence else 0.35
+        paynotu     = round(max(0.0, min(10.0, f_w * spek_score + e_w * r_h)), 4)
 
         db.collection('hisseler').document(hisse_kodu).update({
             'duygusal_taban': round(duygusal, 4),
