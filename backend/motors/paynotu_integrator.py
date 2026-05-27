@@ -9,40 +9,40 @@ Yön hizalama:
   f_score : yüksek → riskli   (ters çevrilmez, spek_score zaten bu yönde)
   e_score : yüksek → memnun   (ters çevrilir → r_h = 10 - e_score)
 
-Formül:
-  r_h     = 10.0 - e_score                      ← halk risk skoru
-  paynotu = 0.65 × f_score + 0.35 × r_h         ← normal
+Robust kalibrasyon:
+  q05/q95 geçerliyse f_raw → 0–10 aralığına percentile-normalize edilir.
+  Değilse doğrudan clamp(f_raw, 0, 10).
 
-  Duygu ayrışması (f_score > HIGH_SPEK_THRESHOLD ve r_h < LOW_PUBLIC_RISK_THRESHOLD):
-  paynotu = 0.90 × f_score + 0.10 × r_h         ← spek yüksek + halk aşırı olumlu
+Dinamik duygusal ağırlık:
+  e_base  = effective_review_weight ?? effective_review_count ?? 0
+  e_conf  = e_base / (e_base + 500)           ← Bayesian güven [0, 1)
+  e_weight = 0.35 * e_conf                    ← max 0.35
+  f_weight = 1.0 - e_weight
 
-  is_sentiment_divergence: override bayrağı — "hisse spekülatif mi?" değil,
-  "spek yüksekken halk anlamlı biçimde ayrışıyor mu?" sorusunu yanıtlar.
+  Duygu ayrışması (f > 7.0 AND r_h < 3.0):
+  e_weight = min(e_weight, 0.10), f_weight = 1.0 - e_weight
 
-Yorum yok durumu:
-  Bayesian anchor emotional_score'u 5.0'a çeker.
-  e_score None ise 5.0 fallback atanır.
-  Ayrı else bloğu yoktur; formül her koşulda aynıdır.
+Veri yoksa:
+  f_raw is None or f_raw == 0.0 → paynotu_score = None (erken dönüş)
 
 Düşük P = sakin / temiz
 Yüksek P = dikkat / anomali / risk
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Optional
 from .financial_engine import SpekResult
 from .emotional_engine import EmotionalResult
 
-# Birleşim ağırlıkları
-FINANCIAL_WEIGHT             = 0.65
-EMOTIONAL_WEIGHT             = 0.35
+# Dinamik ağırlık tavanı
+MAX_EMOTIONAL_WEIGHT     = 0.35
+BAYESIAN_CONFIDENCE_N    = 500.0   # Bayesian çapa gücü (yorum sayısı birimi)
 
-# Duygu ayrışması override ağırlıkları
-DIVERGENCE_FINANCIAL_WEIGHT  = 0.90
-DIVERGENCE_EMOTIONAL_WEIGHT  = 0.10
-
-# Override eşikleri — tek yerden ayarlanır
-HIGH_SPEK_THRESHOLD          = 7.0   # f_score bu değerin üzerindeyse spek güçlü
-LOW_PUBLIC_RISK_THRESHOLD    = 3.0   # r_h bu değerin altındaysa halk aşırı olumlu
+# Duygu ayrışması override eşikleri
+HIGH_SPEK_THRESHOLD      = 7.0
+LOW_PUBLIC_RISK_THRESHOLD = 3.0
+DIVERGENCE_MAX_E_WEIGHT  = 0.10
 
 # Bayesian anchor nötr değeri — yorum yoksa emotional_score buraya çöker
 _BAYESIAN_NEUTRAL = 5.0
@@ -50,15 +50,16 @@ _BAYESIAN_NEUTRAL = 5.0
 
 @dataclass(frozen=True)
 class PayNotuResult:
-    ticker: str
-    paynotu_score: float
-    financial_score: float          # spek_score haritası (geriye uyumluluk)
-    emotional_score: float          # ham emotional_score (ters çevrilmemiş)
-    emotional_risk: float           # r_h = 10 - emotional_score (yön hizalanmış)
-    emotional_grip: float
-    grip_intensity: float
-    is_sentiment_divergence: bool   # override bayrağı: spek yüksek + halk aşırı olumlu
-    has_reviews: bool
+    ticker:                  str
+    paynotu_score:           Optional[float]  # None = veri yetersiz (IPO vb.)
+    financial_score:         float            # kalibre edilmiş f (0–10)
+    raw_spek_score:          float            # ham spek_score (kalibrasyon öncesi)
+    emotional_score:         float            # ham emotional_score (ters çevrilmemiş)
+    emotional_risk:          float            # r_h = 10 - emotional_score
+    emotional_grip:          float
+    grip_intensity:          float
+    is_sentiment_divergence: bool             # override bayrağı
+    has_reviews:             bool
 
     def copyWith(self, **kwargs) -> "PayNotuResult":
         import dataclasses
@@ -66,52 +67,79 @@ class PayNotuResult:
 
 
 class PayNotuIntegrator:
-    """Yeni SpekResult API'sini kullanır, eski PayNotuResult yüzeyini korur."""
+    """Robust kalibrasyon + dinamik duygusal ağırlık."""
 
     def calculate(
         self,
         financial: SpekResult,
         emotional: EmotionalResult,
+        q05: Optional[float] = None,
+        q95: Optional[float] = None,
     ) -> PayNotuResult:
 
-        # --- Girdi güvenliği: her iki skor da 0–10 aralığına clamp edilir ---
-        f_score = max(0.0, min(10.0, financial.spek_score))
+        f_raw = financial.spek_score
 
+        # ── Veri yoksa erken dönüş ───────────────────────────────────────────
+        if f_raw is None or f_raw == 0.0:
+            return PayNotuResult(
+                ticker=financial.ticker,
+                paynotu_score=None,
+                financial_score=0.0,
+                raw_spek_score=f_raw if f_raw is not None else 0.0,
+                emotional_score=_BAYESIAN_NEUTRAL,
+                emotional_risk=10.0 - _BAYESIAN_NEUTRAL,
+                emotional_grip=0.0,
+                grip_intensity=0.0,
+                is_sentiment_divergence=False,
+                has_reviews=False,
+            )
+
+        # ── Robust kalibrasyon ───────────────────────────────────────────────
+        if q05 is not None and q95 is not None and q95 > q05:
+            f = 10.0 * (f_raw - q05) / (q95 - q05)
+        else:
+            f = float(f_raw)
+        f = max(0.0, min(10.0, f))
+
+        # ── Duygusal skor ────────────────────────────────────────────────────
         raw_e   = emotional.emotional_score
         e_score = raw_e if raw_e is not None else _BAYESIAN_NEUTRAL
         e_score = max(0.0, min(10.0, e_score))
 
         has_reviews = emotional.effective_review_count > 0
 
-        # Yön hizalama: halk olumlu skoru → halk risk skoru
+        # Yön hizalama
         r_h = 10.0 - e_score
 
-        # Duygu ayrışması:
-        # Spek güçlü (f yüksek) + halk aşırı olumlu (r_h düşük)
-        # → halkın sinyali finansal sinyalden kopmuş → halk ağırlığı kısılır
-        is_sentiment_divergence = (
-            f_score > HIGH_SPEK_THRESHOLD
-            and r_h < LOW_PUBLIC_RISK_THRESHOLD
+        # ── Dinamik duygusal ağırlık ─────────────────────────────────────────
+        e_base = (
+            getattr(emotional, "effective_review_weight", None)
+            or getattr(emotional, "effective_review_count", None)
+            or 0.0
         )
+        e_conf   = float(e_base) / (float(e_base) + BAYESIAN_CONFIDENCE_N)
+        e_weight = MAX_EMOTIONAL_WEIGHT * e_conf
+        f_weight = 1.0 - e_weight
 
+        # ── Duygu ayrışması override ─────────────────────────────────────────
+        is_sentiment_divergence = (
+            f > HIGH_SPEK_THRESHOLD and r_h < LOW_PUBLIC_RISK_THRESHOLD
+        )
         if is_sentiment_divergence:
-            f_weight = DIVERGENCE_FINANCIAL_WEIGHT
-            e_weight = DIVERGENCE_EMOTIONAL_WEIGHT
-        else:
-            f_weight = FINANCIAL_WEIGHT
-            e_weight = EMOTIONAL_WEIGHT
+            e_weight = min(e_weight, DIVERGENCE_MAX_E_WEIGHT)
+            f_weight = 1.0 - e_weight
 
-        paynotu = f_weight * f_score + e_weight * r_h
+        # ── Nihai skor ───────────────────────────────────────────────────────
+        paynotu = round(max(0.0, min(10.0, f_weight * f + e_weight * r_h)), 4)
 
-        emotional_grip = round(e_weight * r_h, 4)
-        grip_intensity = round(e_weight, 4)
-
-        paynotu = round(max(0.0, min(10.0, paynotu)), 4)
+        emotional_grip  = round(e_weight * r_h, 4)
+        grip_intensity  = round(e_weight, 4)
 
         return PayNotuResult(
             ticker=financial.ticker,
             paynotu_score=paynotu,
-            financial_score=f_score,
+            financial_score=round(f, 4),
+            raw_spek_score=round(f_raw, 4),
             emotional_score=e_score,
             emotional_risk=round(r_h, 4),
             emotional_grip=emotional_grip,

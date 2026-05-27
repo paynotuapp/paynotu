@@ -293,9 +293,12 @@ CRON_BATCH = 5
 def daily_job():
     """
     Her gün 03:00 UTC çalışır.
-    1. Tüm kap_aktif=True hisseler için spek + duygusal skor hesaplar.
-    2. Motor parçalarının tüm detaylarını motor_detay altında Firestore'a yazar.
-    3. Ayın 1'iyse ek olarak SPK kalibrasyon çalıştırır.
+    1. PASS 1 — Tüm hisseler için finansal/duygusal sonuçları ticker_cache'e alır.
+    2. q05/q95 — Geçerli spek_score dağılımından robust eşikler hesaplanır,
+       system_config/motor_thresholds dökümanına yazılır.
+    3. PASS 2 (Prompt 3) — Cache + q05/q95 kullanılarak integrator çalışır,
+       Firestore hisse yazımı yapılır. (Henüz eklenmedi.)
+    4. Ayın 1'iyse ek olarak SPK kalibrasyon çalıştırır.
     """
     now_utc = datetime.now(timezone.utc)
     logger.info(f"[scheduler] Günlük iş başladı — {now_utc.strftime('%Y-%m-%d %H:%M UTC')}")
@@ -306,14 +309,18 @@ def daily_job():
             doc.id: doc.to_dict()
             for doc in db.collection("hisseler").where("kap_aktif", "==", True).stream()
         }
-        logger.info(f"[scheduler] {len(ticker_docs)} aktif hisse")
+        total_tickers = len(ticker_docs)
+        logger.info(f"[scheduler] {total_tickers} aktif hisse")
 
-        ok = fail = 0
         ticker_list = sorted(ticker_docs.keys())
-        # Etap 2.0 — Milat tarihi: 2021-01-01 (kullanıcı kararı A2)
-        # Eski timedelta(days=1825) takvim gün / iş günü uyumsuzluğu yaratıyordu.
         _end_date   = date.today().strftime("%Y-%m-%d")
         _start_date = "2021-01-01"
+
+        # ── PASS 1: Hesaplama cache'i ────────────────────────────────────────
+        # Her ticker için financial + emotional motor çalıştırılır.
+        # Firestore hisse yazımı yapılmaz — bu Prompt 3'te tamamlanacak.
+        ticker_cache: dict = {}
+        ok = fail = 0
 
         for i, ticker in enumerate(ticker_list, 1):
             try:
@@ -323,10 +330,11 @@ def daily_job():
 
                 df = bp.Ticker(ticker).history(start=_start_date, end=_end_date)
                 if df.empty:
+                    ticker_cache[ticker] = {"valid": False, "error": "empty OHLCV"}
                     fail += 1
                     continue
 
-                reviews  = _yorumlar_oku(ticker, db)
+                reviews = _yorumlar_oku(ticker, db)
 
                 from kap_client import get_oda_count
                 try:
@@ -340,41 +348,124 @@ def daily_job():
                     endeksler=endeksler,
                     sektor=sektor,
                     kap_haber_sayisi=kap_haber,
-                    corporate_action_dates=None,  # TODO: Firestore corporate_actions
+                    corporate_action_dates=None,
                 )
-
                 e_result = emotional_engine.calculate(ticker, reviews)
-                final    = integrator.calculate(f_result, e_result)
 
-                # ── Firestore yazma — sadece değişen alanlar ────────────────
+                ticker_cache[ticker] = {
+                    "f":     f_result,
+                    "e":     e_result,
+                    "df":    df,
+                    "kap":   kap_haber,
+                    "valid": f_result.spek_score is not None and f_result.spek_score > 0.0,
+                    "error": None,
+                }
+                ok += 1
+
+            except Exception as ex:
+                ticker_cache[ticker] = {"valid": False, "error": str(ex)}
+                logger.error(f"[{ticker}] {ex}")
+                fail += 1
+
+            if i % CRON_BATCH == 0:
+                time.sleep(1)
+
+        cache_success_count = sum(1 for c in ticker_cache.values() if "f" in c)
+        logger.info(
+            f"[scheduler] Pass 1 tamamlandı — "
+            f"total_tickers={total_tickers} "
+            f"cache_success_count={cache_success_count} "
+            f"ok={ok} fail={fail}"
+        )
+
+        # ── q05/q95 robust kalibrasyon eşikleri ─────────────────────────────
+        valid_scores = [
+            cache["f"].spek_score
+            for cache in ticker_cache.values()
+            if cache.get("valid") is True
+        ]
+        valid_score_count = len(valid_scores)
+
+        q05 = q95 = None
+        if valid_score_count >= 100:
+            q05 = float(np.percentile(valid_scores, 5))
+            q95 = float(np.percentile(valid_scores, 95))
+
+        if valid_score_count >= 100 and q95 is not None and q95 > q05:
+            db.collection("system_config").document("motor_thresholds").set({
+                "spek_q05":               round(q05, 4),
+                "spek_q95":               round(q95, 4),
+                "spek_distribution_date": date.today().strftime("%Y-%m-%d"),
+                "spek_universe_count":    valid_score_count,
+                "spek_percentile_method": "q05_q95",
+                "updated_at":             fb_firestore.SERVER_TIMESTAMP,
+            }, merge=True)
+            logger.info(
+                f"[scheduler] Robust calibration — "
+                f"valid_score_count={valid_score_count} "
+                f"q05={q05:.4f} q95={q95:.4f}"
+            )
+        else:
+            logger.warning(
+                f"[scheduler] Robust calibration skipped: insufficient valid scores "
+                f"(valid_score_count={valid_score_count})"
+            )
+
+        # ── PASS 2: integrator + Firestore hisse yazımı ─────────────────────
+        pass2_total_count       = len(ticker_cache)
+        pass2_written_count     = 0
+        pass2_null_paynotu_count = 0
+        pass2_error_count       = 0
+
+        for j, (ticker, cache) in enumerate(ticker_cache.items(), 1):
+            try:
+                if not cache.get("valid") or "f" not in cache:
+                    db.collection("hisseler").document(ticker).update({
+                        "paynotu_skoru": None,
+                        "has_paynotu":   False,
+                        "paynotu_error": cache.get("error"),
+                        "last_updated":  fb_firestore.SERVER_TIMESTAMP,
+                    })
+                    pass2_null_paynotu_count += 1
+                    pass2_written_count += 1
+                    continue
+
+                final = integrator.calculate(cache["f"], cache["e"], q05, q95)
+
                 db.collection("hisseler").document(ticker).update({
-                    "finansal_taban": round(final.financial_score, 4),
-                    "duygusal_taban": round(final.emotional_score, 4),
-                    "paynotu_skoru":  round(final.paynotu_score, 4),
-                    "last_updated":   fb_firestore.SERVER_TIMESTAMP,
-                    "motor_detay":    _motor_detay_payload(f_result),
-                    "kap_oda_30g":    kap_haber,
-                    "kategori":       f_result.kategori,
+                    "paynotu_skoru":           final.paynotu_score,
+                    "has_paynotu":             final.paynotu_score is not None,
+                    "finansal_taban":          final.financial_score,
+                    "raw_spek_score":          final.raw_spek_score,
+                    "duygusal_taban":          final.emotional_score,
+                    "emotional_risk":          final.emotional_risk,
+                    "emotional_grip":          final.emotional_grip,
+                    "grip_intensity":          final.grip_intensity,
+                    "is_sentiment_divergence": final.is_sentiment_divergence,
+                    "has_reviews":             final.has_reviews,
+                    "kap_oda_30g":             cache["kap"],
+                    "motor_detay":             _motor_detay_payload(cache["f"]),
+                    "kategori":                cache["f"].kategori,
+                    "last_updated":            fb_firestore.SERVER_TIMESTAMP,
                 })
+                if final.paynotu_score is None:
+                    pass2_null_paynotu_count += 1
+                pass2_written_count += 1
 
-                # ─── Senaryo Classifier (Etap 1.4b) ────────────────────────
+                # ── Senaryo Classifier ──────────────────────────────────────
                 # Bilinçli resilience: classifier hatası ana skoru etkilemez.
-                # Ayrı try/except + ayrı Firestore update (iki bağımsız
-                # atomic write, tek transaction değil — kasten).
                 try:
                     xu100 = financial_engine.xu100_returns
-                    if xu100.empty:
-                        logger.info(
-                            f"[{ticker}] scenario_classifier atlandı: "
-                            f"xu100 serisi boş"
-                        )
+                    cached_df = cache.get("df")
+                    if cached_df is None or xu100.empty:
+                        logger.info(f"[{ticker}] scenario_classifier atlandı")
                     else:
                         bundle = scenario_classifier.classify(
-                            ohlcv_df=df,
+                            ohlcv_df=cached_df,
                             xu100_series=xu100,
                             sector_baseline_df=None,
                             ticker=ticker,
-                            kategori=f_result.kategori,
+                            kategori=cache["f"].kategori,
                             ipo_date=None,
                             current_date=date.today(),
                         )
@@ -394,28 +485,29 @@ def daily_job():
                             f"{len(bundle.segments)} segment"
                         )
                 except Exception as scn_err:
-                    logger.error(
-                        f"[{ticker}] scenario_classifier failed: {scn_err}"
-                    )
-                # ────────────────────────────────────────────────────────────
+                    logger.error(f"[{ticker}] scenario_classifier failed: {scn_err}")
 
                 logger.info(
-                    f"[{i}/{len(ticker_list)}] {ticker} → "
-                    f"paynotu={final.paynotu_score:.2f} "
-                    f"spek={final.financial_score:.2f} "
-                    f"duy={final.emotional_score:.2f} "
-                    f"(hard={f_result.spek_gun_hard} "
-                    f"ext={f_result.spek_gun_extreme} "
-                    f"streak={f_result.max_streak})"
+                    f"[{j}/{pass2_total_count}] {ticker} → "
+                    f"paynotu={final.paynotu_score} "
+                    f"spek={final.financial_score:.4f} "
+                    f"duy={final.emotional_score:.4f}"
                 )
-                ok += 1
 
-            except Exception as e:
-                logger.error(f"[{ticker}] {e}")
-                fail += 1
+            except Exception as ex:
+                logger.error(f"[{ticker}] Pass 2 hatası: {ex}")
+                pass2_error_count += 1
 
-            if i % CRON_BATCH == 0:
+            if j % CRON_BATCH == 0:
                 time.sleep(1)
+
+        logger.info(
+            f"[scheduler] Pass 2 tamamlandı — "
+            f"pass2_total_count={pass2_total_count} "
+            f"pass2_written_count={pass2_written_count} "
+            f"pass2_null_paynotu_count={pass2_null_paynotu_count} "
+            f"pass2_error_count={pass2_error_count}"
+        )
 
         logger.info(f"[scheduler] Skor tamamlandı — {ok} OK, {fail} hata")
 
@@ -1185,6 +1277,13 @@ def yorumu_skorla(body: dict):
             spek_score = float((hisse_doc.to_dict() or {}).get('finansal_taban', 5.0) or 5.0)
 
         spek_score  = max(0.0, min(10.0, spek_score))
+        # Finansal veri yoksa PayNotu üretilmez
+        if spek_score == 0.0:
+            db.collection('hisseler').document(hisse_kodu).update({
+                'duygusal_taban': round(duygusal, 4),
+                'paynotu_skoru': None,
+            })
+            return sonuc
         duygusal    = max(0.0, min(10.0, duygusal))
         r_h         = 10.0 - duygusal
         divergence  = spek_score > 7.0 and r_h < 3.0
