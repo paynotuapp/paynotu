@@ -12,7 +12,6 @@ sk-ant-api*.txt
 *.pem
 
 # --- Flutter / Mobile (scope dışı) ---
-/lib/
 /android/
 /ios/
 /web/
