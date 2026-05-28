@@ -59,7 +59,7 @@ import logging
 import os
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -128,6 +128,27 @@ _SEKTOR_DEFAULTS_NORMALIZED = {
     _normalize_tr(k): v for k, v in _SEKTOR_DEFAULTS.items()
 }
 
+# ── Anomali Aktivite Skoru Sabitleri ─────────────────────────────────────────
+ANOMALY_HARD_WEIGHT        = 1.0
+ANOMALY_EXTREME_WEIGHT     = 2.0
+MIN_DAYS_FOR_ANOMALY_SCORE = 60
+
+
+@dataclass(frozen=True)
+class AnomalyActivityMetrics:
+    total_days:             int
+    hard_count:             int
+    extreme_count:          int
+    weighted_count:         float
+    block_count:            int
+    longest_streak:         int
+    avg_streak:             float
+    hhi:                    float
+    recency_center:         float
+    r_activity:             float
+    r_streak:               float
+    anomaly_activity_score: Optional[float]
+
 
 @dataclass(frozen=True)
 class SpekResult:
@@ -162,10 +183,14 @@ class SpekResult:
     temel_pd_dd: Optional[float] = None
     temel_fk: Optional[float] = None
     temel_net_kar_marji: Optional[float] = None
+    temel_ok_buyume: Optional[float] = None
+    temel_borc_favok: Optional[float] = None
     temel_kaynak: str = "fallback"
+    temel_period: Optional[str] = None
     kap_haber_sayisi: int = 0
     haber_carpani: float = 1.0
     kategori: str = "TEMIZ"  # 'TEMIZ' | 'GECMIS_PD' | 'YENI_PD' | 'AKTIF_PD'
+    anomaly_metrics: Optional[AnomalyActivityMetrics] = None
 
     def copyWith(self, **kwargs) -> "SpekResult":
         import dataclasses
@@ -285,6 +310,8 @@ class FinancialEngine:
             0.0, 10.0
         ))
 
+        anomaly_metrics = self._anomaly_activity_metrics(spek_hard, spek_extreme, len(df))
+
         data_start = str(df.index[0].date())  if len(df) > 0 else ""
         data_end   = str(df.index[-1].date()) if len(df) > 0 else ""
 
@@ -320,16 +347,20 @@ class FinancialEngine:
             temel_pd_dd=fundamental.get("pd_dd"),
             temel_fk=fundamental.get("fk"),
             temel_net_kar_marji=fundamental.get("net_kar_marji"),
+            temel_ok_buyume=fundamental.get("ok_buyume"),
+            temel_borc_favok=fundamental.get("borc_favok"),
             temel_kaynak=fundamental.get("data_source", "fallback"),
+            temel_period=str(fundamental.get("period")) if fundamental.get("period") else None,
             kap_haber_sayisi=kap_haber_sayisi,
             haber_carpani=round(haber_carpani, 4),
             kategori=kategori,
+            anomaly_metrics=anomaly_metrics,
         )
 
     def _rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.sort_index().copy()
         df.index = pd.DatetimeIndex(df.index.date)
-        return df.iloc[-self.ROLLING_WINDOW:]
+        return cast(pd.DataFrame, df.iloc[-self.ROLLING_WINDOW:].copy())
 
     def _veri_kalite_kontrolu(self, df: pd.DataFrame) -> tuple[pd.DataFrame, float]:
         df    = df.copy()
@@ -341,7 +372,8 @@ class FinancialEngine:
             df["Volume"] = df["Volume"].replace(0, np.nan).ffill().fillna(0)
             guven *= max(0.8, 1.0 - sifir_hacim / len(df))
         if (df["Close"] <= 0).sum() > 0:
-            df     = df[df["Close"] > 0]
+            valid_close_mask = df["Close"] > 0
+            df = cast(pd.DataFrame, df.loc[valid_close_mask].copy())
             guven *= 0.9
         if len(df) > 10:
             beklenen = pd.bdate_range(df.index[0], df.index[-1])
@@ -442,6 +474,86 @@ class FinancialEngine:
             cur   = cur + 1 if v else 0
             max_s = max(max_s, cur)
         return max_s
+
+    def _anomaly_activity_metrics(
+        self,
+        spek_hard: np.ndarray,
+        spek_extreme: np.ndarray,
+        total_days: int,
+    ) -> Optional[AnomalyActivityMetrics]:
+        if total_days < MIN_DAYS_FOR_ANOMALY_SCORE:
+            return None
+
+        hard_count     = int(spek_hard.sum())
+        extreme_count  = int(spek_extreme.sum())
+        weighted_count = (
+            hard_count    * ANOMALY_HARD_WEIGHT +
+            extreme_count * ANOMALY_EXTREME_WEIGHT
+        )
+
+        # event_series: extreme ⊆ hard → extreme=2, hard-only=1, normal=0
+        event_series = np.where(spek_extreme, 2, np.where(spek_hard, 1, 0))
+
+        # Blok metrikler
+        blocks: List[int] = []
+        cur = 0
+        for v in event_series:
+            if v > 0:
+                cur += 1
+            elif cur > 0:
+                blocks.append(cur)
+                cur = 0
+        if cur > 0:
+            blocks.append(cur)
+
+        block_count    = len(blocks)
+        longest_streak = max(blocks) if blocks else 0
+        avg_streak     = float(sum(blocks)) / block_count if block_count > 0 else 0.0
+
+        # HHI — blok yoğunlaşma endeksi
+        if hard_count > 0 and block_count > 0:
+            hhi = float(sum((b / hard_count) ** 2 for b in blocks))
+        else:
+            hhi = 0.0
+
+        # Recency center — anomali günlerinin ağırlıklı zaman merkezi [0, 1]
+        n = len(event_series)
+        anomaly_idx = np.where(event_series > 0)[0]
+        if len(anomaly_idx) > 0:
+            weights        = event_series[anomaly_idx].astype(float)
+            center         = float(np.average(anomaly_idx, weights=weights))
+            recency_center = center / (n - 1) if n > 1 else 0.5
+        else:
+            recency_center = 0.0
+
+        # Normalize R değerleri [0, 1]
+        # r_activity: weighted_count oranı; %30 tamamen anomalili → 1.0
+        r_activity = min(1.0, (weighted_count / total_days) / 0.30) if total_days > 0 else 0.0
+        # r_streak: 15 ardışık gün → 1.0
+        r_streak   = min(1.0, longest_streak / 15.0)
+        # r_recency: recency_center zaten [0, 1]
+        r_recency  = recency_center
+
+        # V1 AAS
+        aas = round(float(np.clip(
+            (0.45 * r_activity + 0.30 * r_streak + 0.25 * r_recency) * 10.0,
+            0.0, 10.0
+        )), 4)
+
+        return AnomalyActivityMetrics(
+            total_days=total_days,
+            hard_count=hard_count,
+            extreme_count=extreme_count,
+            weighted_count=round(weighted_count, 4),
+            block_count=block_count,
+            longest_streak=longest_streak,
+            avg_streak=round(avg_streak, 4),
+            hhi=round(hhi, 4),
+            recency_center=round(recency_center, 4),
+            r_activity=round(r_activity, 4),
+            r_streak=round(r_streak, 4),
+            anomaly_activity_score=aas,
+        )
 
     def _fiyat_anomali_skoru(
         self,
@@ -780,17 +892,92 @@ class FinancialEngine:
         roe = net_kar / ozkaynaklar if net_kar is not None else None
         nkm = net_kar / satis if (net_kar and satis and satis > 0) else None
         pd_dd, fk = None, None
-        last_price = getattr(info, "last", None) or (info.get("last") if hasattr(info, "get") else None)
-        eps        = getattr(info, "eps",  None) or (info.get("eps")  if hasattr(info, "get") else None)
-        if last_price and odenmis_sermaye and ozkaynaklar > 0:
+
+        def _to_float_or_none(value):
+            try:
+                if value is None or pd.isna(value):
+                    return None
+                return float(value)
+            except Exception:
+                return None
+
+        # Borsapy info içinden fiyat / EPS gelirse önce onları kullan.
+        # Bazı hisselerde info.eps boş geldiği için F/K daha önce None kalıyordu.
+        last_price = _to_float_or_none(
+            getattr(info, "last", None) or
+            (info.get("last") if hasattr(info, "get") else None)
+        )
+        eps = _to_float_or_none(
+            getattr(info, "eps", None) or
+            (info.get("eps") if hasattr(info, "get") else None)
+        )
+
+        # Fiyat info.last içinde gelmezse son kapanıştan fallback üret.
+        if last_price is None:
+            try:
+                hist = t.history(period="10d")
+                if hist is not None and not hist.empty and "Close" in hist.columns:
+                    close = hist["Close"].dropna()
+                    if not close.empty:
+                        last_price = float(close.iloc[-1])
+            except Exception as e:
+                logger.warning(f"[temel] {ticker} son fiyat fallback hesaplanamadı: {e}")
+
+        # EPS info.eps içinde gelmezse yaklaşık EPS = net_kar / odenmis_sermaye.
+        # Bu sayede F/K alanı, EPS eksikliğinde de hesaplanabilir.
+        if eps is None and net_kar is not None and odenmis_sermaye is not None:
+            try:
+                if float(odenmis_sermaye) > 0:
+                    eps = float(net_kar) / float(odenmis_sermaye)
+            except Exception as e:
+                logger.warning(f"[temel] {ticker} EPS fallback hesaplanamadı: {e}")
+
+        if last_price is not None and odenmis_sermaye and ozkaynaklar > 0:
             pd_dd = float(last_price) * float(odenmis_sermaye) / ozkaynaklar
-        if last_price and eps and float(eps) > 0:
+
+        if last_price is not None and eps is not None and float(eps) > 0:
             fk = float(last_price) / float(eps)
+        # Özkaynak büyümesi (iki dönem varsa hesapla)
+        ok_buyume = None
+        try:
+            if len(bs.columns) >= 2:
+                ozk_onceki = float(bs.loc["Özkaynaklar"].iloc[1]) if "Özkaynaklar" in bs.index else None
+                if ozk_onceki and ozk_onceki > 0 and ozkaynaklar:
+                    ok_buyume = round((ozkaynaklar - ozk_onceki) / abs(ozk_onceki), 6)
+        except Exception:
+            ok_buyume = None
+
+        # Borç / FAVÖK
+        borc_favok = None
+        try:
+            toplam_borc_keys = ["Finansal Borçlar", "Toplam Yükümlülükler", "Uzun Vadeli Borçlar"]
+            favok_keys = ["FAVÖK", "Faiz Amortisman Vergi Öncesi Kâr"]
+            toplam_borc = None
+            for k in toplam_borc_keys:
+                if k in bs.index:
+                    v = bs.loc[k].iloc[0]
+                    if pd.notna(v):
+                        toplam_borc = float(v)
+                        break
+            favok = None
+            for k in favok_keys:
+                if k in is_.index:
+                    v = is_.loc[k].iloc[0]
+                    if pd.notna(v):
+                        favok = float(v)
+                        break
+            if toplam_borc is not None and favok is not None and favok > 0:
+                borc_favok = round(toplam_borc / favok, 4)
+        except Exception:
+            borc_favok = None
+
         return {
             "roe":           round(roe,   6) if roe   is not None else None,
             "net_kar_marji": round(nkm,   6) if nkm   is not None else None,
             "pd_dd":         round(pd_dd, 4) if pd_dd is not None else None,
             "fk":            round(fk,    4) if fk    is not None else None,
+            "ok_buyume":     ok_buyume,
+            "borc_favok":    borc_favok,
             "data_source":   "borsapy",
             "period":        latest,
         }

@@ -721,7 +721,7 @@ class _HisseListesiState extends State<HisseListesi> {
         liste.sort((a, b) => _sayiKarsilastir(a, b, 'ortalamaPuan'));
         break;
       case SiralaAlan.anomaliSkoru:
-        liste.sort((a, b) => _sayiKarsilastir(a, b, 'finansal_taban'));
+        liste.sort((a, b) => _sayiKarsilastir(a, b, 'paynotu_skoru'));
         break;
       case SiralaAlan.paynotu:
         liste.sort((a, b) => _sayiKarsilastir(a, b, 'paynotu_skoru'));

@@ -52,7 +52,6 @@ _BAYESIAN_NEUTRAL = 5.0
 class PayNotuResult:
     ticker:                  str
     paynotu_score:           Optional[float]  # None = veri yetersiz (IPO vb.)
-    financial_score:         float            # kalibre edilmiş f (0–10)
     raw_spek_score:          float            # ham spek_score (kalibrasyon öncesi)
     emotional_score:         float            # ham emotional_score (ters çevrilmemiş)
     emotional_risk:          float            # r_h = 10 - emotional_score
@@ -84,7 +83,6 @@ class PayNotuIntegrator:
             return PayNotuResult(
                 ticker=financial.ticker,
                 paynotu_score=None,
-                financial_score=0.0,
                 raw_spek_score=f_raw if f_raw is not None else 0.0,
                 emotional_score=_BAYESIAN_NEUTRAL,
                 emotional_risk=10.0 - _BAYESIAN_NEUTRAL,
@@ -129,16 +127,20 @@ class PayNotuIntegrator:
             e_weight = min(e_weight, DIVERGENCE_MAX_E_WEIGHT)
             f_weight = 1.0 - e_weight
 
-        # ── Nihai skor ───────────────────────────────────────────────────────
-        paynotu = round(max(0.0, min(10.0, f_weight * f + e_weight * r_h)), 4)
+        # ── Nihai skor — AAS tabanlı ─────────────────────────────────────────
+        aas = (
+            financial.anomaly_metrics.anomaly_activity_score
+            if getattr(financial, "anomaly_metrics", None) is not None
+            else None
+        )
+        paynotu_score = aas
 
         emotional_grip  = round(e_weight * r_h, 4)
         grip_intensity  = round(e_weight, 4)
 
         return PayNotuResult(
             ticker=financial.ticker,
-            paynotu_score=paynotu,
-            financial_score=round(f, 4),
+            paynotu_score=paynotu_score,
             raw_spek_score=round(f_raw, 4),
             emotional_score=e_score,
             emotional_risk=round(r_h, 4),

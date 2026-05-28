@@ -95,8 +95,7 @@ class FinansalPanel extends StatelessWidget {
       _num(hisseData['rsi14']) ??
       _num(_motorDetay['rsi_14']);
 
-  double? get _finansalTaban =>
-      _num(hisseData['finansal_taban']) ?? _num(_motorDetay['spek_score']);
+  double? get _finansalTaban => null;
 
   String? get _kaynak =>
       _str(_rootTemel['kaynak']) ??
@@ -384,7 +383,7 @@ class FinansalPanel extends StatelessWidget {
                   if (_spekGun != null)
                     Expanded(
                       child: _BilgiSatir(
-                        etiket: 'Spekülatif Gün',
+                        etiket: 'Anomali Aktivitesi',
                         deger: '$_spekGun gün',
                       ),
                     ),

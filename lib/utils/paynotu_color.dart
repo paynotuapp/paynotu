@@ -104,4 +104,4 @@ Color sektorRenk(String sector) {
 ///   3.44 ≤ skor < 3.95         → Turuncu   (%50–75)
 ///   skor ≥ 3.95 (tam → 4.36)  → Kırmızı   (üst %25)
 Color getPayNotuColor(double skor, int spekGun) =>
-    _skorToColor(_spekAyarli(skor.clamp(0.0, 10.0), spekGun));
+    _skorToColor(skor.clamp(0.0, 10.0));

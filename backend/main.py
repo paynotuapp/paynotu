@@ -21,6 +21,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore as fb_firestore
 
 from fastapi import FastAPI, HTTPException, Header
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -181,7 +182,7 @@ def _guncelle_topsis_rank(db) -> None:
     skorlar = []
     for doc in docs:
         d = doc.to_dict() or {}
-        finansal = d.get("finansal_taban")
+        finansal = d.get("raw_spek_score") or d.get("spek_score")
         if finansal is not None:
             skorlar.append((doc.id, float(finansal)))
 
@@ -221,6 +222,7 @@ def _motor_detay_payload(f_result) -> dict:
     SpekResult nesnesinden Firestore'a yazılacak motor_detay dict'ini üretir.
     Yeni motor v2.2 alanlarını kullanır.
     """
+    _am = getattr(f_result, "anomaly_metrics", None)
     return {
         # ── Spek skorları ───────────────────────────────────────────────────
         "spek_score":             f_result.spek_score,
@@ -281,6 +283,22 @@ def _motor_detay_payload(f_result) -> dict:
             "period":        f_result.temel_period,
         },
 
+        # ── Anomali metrikler ────────────────────────────────────────────────
+        "anomaly_metrics": {
+            "total_days":             _am.total_days,
+            "hard_count":             _am.hard_count,
+            "extreme_count":          _am.extreme_count,
+            "weighted_count":         _am.weighted_count,
+            "block_count":            _am.block_count,
+            "longest_streak":         _am.longest_streak,
+            "avg_streak":             _am.avg_streak,
+            "hhi":                    _am.hhi,
+            "recency_center":         _am.recency_center,
+            "r_activity":             _am.r_activity,
+            "r_streak":               _am.r_streak,
+            "anomaly_activity_score": _am.anomaly_activity_score,
+        } if _am is not None else None,
+
         # ── Zaman damgası ───────────────────────────────────────────────────
         "guncelleme_tarihi": pd.Timestamp.now().isoformat(),
     }
@@ -290,7 +308,7 @@ def _motor_detay_payload(f_result) -> dict:
 
 CRON_BATCH = 5
 
-def daily_job():
+def daily_job(tickers: list[str] | None = None):
     """
     Her gün 03:00 UTC çalışır.
     1. PASS 1 — Tüm hisseler için finansal/duygusal sonuçları ticker_cache'e alır.
@@ -312,7 +330,7 @@ def daily_job():
         total_tickers = len(ticker_docs)
         logger.info(f"[scheduler] {total_tickers} aktif hisse")
 
-        ticker_list = sorted(ticker_docs.keys())
+        ticker_list = sorted(tickers) if tickers else sorted(ticker_docs.keys())
         _end_date   = date.today().strftime("%Y-%m-%d")
         _start_date = "2021-01-01"
 
@@ -432,12 +450,13 @@ def daily_job():
 
                 final = integrator.calculate(cache["f"], cache["e"], q05, q95)
 
+                _am = getattr(cache["f"], "anomaly_metrics", None)
                 db.collection("hisseler").document(ticker).update({
                     "paynotu_skoru":           final.paynotu_score,
                     "has_paynotu":             final.paynotu_score is not None,
-                    "finansal_taban":          final.financial_score,
-                    "raw_spek_score":          final.raw_spek_score,
-                    "duygusal_taban":          final.emotional_score,
+                    "halk_skoru":              final.emotional_score,
+                    "raw_spek_score":          cache["f"].spek_score,
+                    "anomali_skoru":           final.paynotu_score,
                     "emotional_risk":          final.emotional_risk,
                     "emotional_grip":          final.emotional_grip,
                     "grip_intensity":          final.grip_intensity,
@@ -446,6 +465,21 @@ def daily_job():
                     "kap_oda_30g":             cache["kap"],
                     "motor_detay":             _motor_detay_payload(cache["f"]),
                     "kategori":                cache["f"].kategori,
+                    "financial_score":         fb_firestore.DELETE_FIELD,
+                    "anomaly_metrics": {
+                        "total_days":             _am.total_days,
+                        "hard_count":             _am.hard_count,
+                        "extreme_count":          _am.extreme_count,
+                        "weighted_count":         _am.weighted_count,
+                        "block_count":            _am.block_count,
+                        "longest_streak":         _am.longest_streak,
+                        "avg_streak":             _am.avg_streak,
+                        "hhi":                    _am.hhi,
+                        "recency_center":         _am.recency_center,
+                        "r_activity":             _am.r_activity,
+                        "r_streak":               _am.r_streak,
+                        "anomaly_activity_score": _am.anomaly_activity_score,
+                    } if _am is not None else fb_firestore.DELETE_FIELD,
                     "last_updated":            fb_firestore.SERVER_TIMESTAMP,
                 })
                 if final.paynotu_score is None:
@@ -490,7 +524,6 @@ def daily_job():
                 logger.info(
                     f"[{j}/{pass2_total_count}] {ticker} → "
                     f"paynotu={final.paynotu_score} "
-                    f"spek={final.financial_score:.4f} "
                     f"duy={final.emotional_score:.4f}"
                 )
 
@@ -1090,14 +1123,32 @@ def get_score(ticker: str):
     # ── Firestore atomic update ──────────────────────────────────────────────
     try:
         db = _firebase_db()
+        _am_gs = getattr(f_result, "anomaly_metrics", None)
         db.collection("hisseler").document(ticker).update({
-            "finansal_taban": round(final.financial_score, 4),
-            "duygusal_taban": round(final.emotional_score, 4),
-            "paynotu_skoru":  round(final.paynotu_score, 4),
-            "last_updated":   fb_firestore.SERVER_TIMESTAMP,
-            "motor_detay":    _motor_detay_payload(f_result),
-            "kap_oda_30g":    kap_haber,
-            "kategori":       f_result.kategori,
+            "halk_skoru":      round(final.emotional_score, 4),
+            "anomali_skoru":   round(final.paynotu_score, 4) if final.paynotu_score is not None else None,
+            "paynotu_skoru":   round(final.paynotu_score, 4) if final.paynotu_score is not None else None,
+            "financial_score": fb_firestore.DELETE_FIELD,
+            "finansal_taban":  fb_firestore.DELETE_FIELD,
+            "duygusal_taban":  fb_firestore.DELETE_FIELD,
+            "last_updated":    fb_firestore.SERVER_TIMESTAMP,
+            "motor_detay":     _motor_detay_payload(f_result),
+            "kap_oda_30g":     kap_haber,
+            "kategori":        f_result.kategori,
+            "anomaly_metrics": {
+                "total_days":             _am_gs.total_days,
+                "hard_count":             _am_gs.hard_count,
+                "extreme_count":          _am_gs.extreme_count,
+                "weighted_count":         _am_gs.weighted_count,
+                "block_count":            _am_gs.block_count,
+                "longest_streak":         _am_gs.longest_streak,
+                "avg_streak":             _am_gs.avg_streak,
+                "hhi":                    _am_gs.hhi,
+                "recency_center":         _am_gs.recency_center,
+                "r_activity":             _am_gs.r_activity,
+                "r_streak":               _am_gs.r_streak,
+                "anomaly_activity_score": _am_gs.anomaly_activity_score,
+            } if _am_gs is not None else fb_firestore.DELETE_FIELD,
         })
     except Exception as e:
         logger.warning(f"[{ticker}] Firestore yazma hatası: {e}")
@@ -1106,14 +1157,10 @@ def get_score(ticker: str):
     return {
         "ticker":          ticker,
 
-        # Yeni alan adları
         "spek_score":      f_result.spek_score,
         "paynotu_score":   final.paynotu_score,
         "emotional_score": final.emotional_score,
         "guven_skoru":     f_result.guven_skoru,
-
-        # Eski alan adı uyumluluğu (legacy field name)
-        "financial_score": final.financial_score,
 
         "emotional_grip":  final.emotional_grip,
         "grip_intensity":  final.grip_intensity,
@@ -1354,14 +1401,21 @@ def haberler_kap(ticker: str = "", days: int = 30):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+class DailyJobRequest(BaseModel):
+    tickers: list[str] | None = None
+
+
 @app.post("/admin/run-daily-job")
-def trigger_daily_job(x_admin_key: str = Header(default="")):
+def trigger_daily_job(
+    body: DailyJobRequest = DailyJobRequest(),
+    x_admin_key: str = Header(default=""),
+):
     """Günlük cron job'ı manuel tetikle (test için)."""
     if _ADMIN_KEY and x_admin_key != _ADMIN_KEY:
         raise HTTPException(status_code=403, detail="Yetkisiz")
     import threading
-    threading.Thread(target=daily_job, daemon=True).start()
-    return {"status": "started", "message": "daily_job arka planda çalışıyor"}
+    threading.Thread(target=daily_job, args=(body.tickers,), daemon=True).start()
+    return {"status": "started", "message": "daily_job arka planda çalışıyor", "tickers": body.tickers}
 
 
 @app.post("/admin/update-ranks")

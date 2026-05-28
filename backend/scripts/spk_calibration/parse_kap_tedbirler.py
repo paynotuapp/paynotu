@@ -1,5 +1,5 @@
 """
-KAP Tedbir Kararı PDF parser.
+KAP Tedbir Karari PDF parser.
 
 Reads all PDFs from C:/pay/tedbir_karar/ and extracts:
 - Bildirim ID

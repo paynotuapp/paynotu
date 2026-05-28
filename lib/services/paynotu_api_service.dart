@@ -69,7 +69,7 @@ class PayNotuSkorSonucu {
     return PayNotuSkorSonucu(
       ticker:         json['ticker'] as String,
       paynotuScore:   (json['paynotu_score'] as num?)?.toDouble(),
-      financialScore: (json['financial_score'] ?? 0.0).toDouble(),
+      financialScore: ((json['raw_spek_score'] ?? json['spek_score']) ?? 0.0).toDouble(),
       emotionalScore: (json['emotional_score'] ?? 0.0).toDouble(),
       emotionalGrip:  (json['emotional_grip']  ?? 0.0).toDouble(),
       gripIntensity:  (json['grip_intensity']  ?? 0.0).toDouble(),
