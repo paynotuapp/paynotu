@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from motors import FinancialEngine, EmotionalEngine, PayNotuIntegrator
+from motors import FinancialEngine, EmotionalEngine, PayNotuIntegrator, FundamentalEngine
 from motors.emotional_engine import Review
 from services.scenario_classifier import ScenarioClassifier, ClassifierConfig
 from daily_ohlcv import fetch_ohlcv_from_firestore, run_daily_ohlcv_update
@@ -63,6 +63,7 @@ def _firebase_db():
 financial_engine    = FinancialEngine()
 emotional_engine    = EmotionalEngine()
 integrator          = PayNotuIntegrator()
+fund_engine         = FundamentalEngine()
 scenario_classifier = ScenarioClassifier(
     config=ClassifierConfig(),
     financial_engine=financial_engine,
@@ -520,6 +521,43 @@ def daily_job(tickers: list[str] | None = None):
                         )
                 except Exception as scn_err:
                     logger.error(f"[{ticker}] scenario_classifier failed: {scn_err}")
+
+                # ── Fundamental Engine ──────────────────────────────────────
+                try:
+                    _hd_fund  = ticker_docs.get(ticker) or {}
+                    _sektor   = _hd_fund.get("industry") or _hd_fund.get("sektor") or ""
+                    fund_res  = fund_engine.calculate(ticker, sektor=_sektor)
+                    _pio      = fund_res.piotroski
+                    _fsub     = fund_res.subscores
+                    db.collection("hisseler").document(ticker).update({
+                        "finansal_skor":          fund_res.financial_score,
+                        "finansal_skor_label":    fund_res.financial_score_label,
+                        "finansal_skor_quality":  fund_res.financial_score_quality,
+                        "finansal_subscores": {
+                            "profitability": _fsub.profitability,
+                            "balance_sheet": _fsub.balance_sheet,
+                            "cash_flow":     _fsub.cash_flow,
+                            "growth":        _fsub.growth,
+                            "valuation":     _fsub.valuation,
+                            "stability":     _fsub.stability,
+                            "piotroski":     _fsub.piotroski,
+                        },
+                        "piotroski_score":        _pio.score      if _pio else None,
+                        "piotroski_normalized":   _pio.normalized if _pio else None,
+                        "finansal_aciklama":      fund_res.explanation,
+                        "finansal_flags":         fund_res.financial_flags,
+                        "finansal_data_source":   fund_res.data_source,
+                        "finansal_sector_group":  fund_res.sector_group,
+                        "finansal_period":        fund_res.period,
+                    })
+                    logger.info(
+                        f"[{ticker}] fund_engine OK — "
+                        f"skor={fund_res.financial_score} "
+                        f"quality={fund_res.financial_score_quality} "
+                        f"label={fund_res.financial_score_label}"
+                    )
+                except Exception as fund_err:
+                    logger.warning(f"[{ticker}] fund_engine hatası: {fund_err}")
 
                 logger.info(
                     f"[{j}/{pass2_total_count}] {ticker} → "

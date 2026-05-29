@@ -374,14 +374,12 @@ class _DetayScreenState extends State<DetayScreen>
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  ((hisseData['anomali_skoru'] ?? hisseData['paynotu_skoru'] ?? 0.0) as num)
-                                      .toDouble()
-                                      .toStringAsFixed(1),
+                                  '—',
                                   style: const TextStyle(
                                       fontSize: 22,
                                       fontWeight: FontWeight.bold),
                                 ),
-                                Text('Anomali Skoru',
+                                Text('Finansal Skor',
                                     style: TextStyle(
                                         fontSize: 11,
                                         color: Theme.of(context).colorScheme.onSurfaceVariant)),
