@@ -194,6 +194,40 @@ _BROKER_PIOTROSKI_NA_MSG = (
     "sonuç üretmez."
 )
 
+# ── Lending Operational ağırlıkları ──────────────────────────────────────────
+# cash_flow ve piotroski not_applicable → dışlanır.
+# Kalan 5: profitability(30) + balance_sheet/capital_adequacy(25)
+#          + growth(20) + stability(15) + valuation(10) = 1.00
+_LENDING_WEIGHTS: Dict[str, float] = {
+    "profitability":  0.30,
+    "balance_sheet":  0.25,   # capital_adequacy bu alana map edilir
+    "cash_flow":      0.15,   # not_applicable
+    "growth":         0.20,
+    "valuation":      0.10,
+    "stability":      0.15,
+    "piotroski":      0.05,   # limited ama final skora dahil değil → not_applicable
+}
+
+_LENDING_PIOTROSKI_MSG = (
+    "Lending operational şirketlerinde klasik Piotroski F-Score sınırlı "
+    "yorumlanmalıdır; final skora dahil edilmedi."
+)
+
+_LENDING_STALE_CUTOFF = pd.Timestamp("2025-11-30")
+
+
+def _is_lending_stale(data: dict) -> bool:
+    """Verinin en güncel döneminin 2025-11-30'dan önce olup olmadığını kontrol et."""
+    try:
+        is_ = data.get("is_")
+        if is_ is None or is_.empty:
+            return False
+        latest = is_.columns[0]
+        ts = pd.Timestamp(latest) if not hasattr(latest, "date") else pd.Timestamp(latest)
+        return ts < _LENDING_STALE_CUTOFF
+    except Exception:
+        return False
+
 # ── borsapy satır adı alias listeleri ────────────────────────────────────────
 _NET_PROFIT_KEYS = [
     "DÖNEM KARI (ZARARI)",
@@ -355,6 +389,11 @@ YF_INTEREST_EXPENSE_KEYS = [
     "Interest Expense", "Interest Expense Non Operating",
 ]
 YF_NET_INTEREST_INCOME_KEYS = ["NetInterestIncome", "Net Interest Income"]
+# Brüt faiz geliri — lending_operational için (NetInterestIncome'dan ayrı)
+YF_INTEREST_INCOME_GROSS_KEYS = [
+    "InterestIncome", "TotalInterestIncome",
+    "Interest Income", "Total Interest Income",
+]
 YF_OPERATING_CASHFLOW_KEYS = [
     "OperatingCashFlow", "CashFlowFromContinuingOperatingActivities",
     # eski format
@@ -678,9 +717,14 @@ class FundamentalEngine:
         flags: List[str] = []
 
         # ── Broker Operational özel yolu ────────────────────────────────────
-        # financial_special + broker_operational → V1 broker modeli
         if sg == "financial_special" and sector_profile == "broker_operational":
             return self._calculate_broker_operational(
+                ticker, sg, sector_profile, flags
+            )
+
+        # ── Lending Operational özel yolu ───────────────────────────────────
+        if sg == "financial_special" and sector_profile == "lending_operational":
+            return self._calculate_lending_operational(
                 ticker, sg, sector_profile, flags
             )
 
@@ -2422,6 +2466,440 @@ class FundamentalEngine:
         if not parts:
             return "Finansal tablo verisiyle değerlendirme yapıldı."
         return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Lending Operational V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_lending_operational(
+        self,
+        ticker:         str,
+        sector_group:   str,
+        sector_profile: str,
+        flags:          List[str],
+    ) -> FundamentalResult:
+        """Lending Operational V1 model (faktoring/finansal kiralama/finansman).
+
+        Primary: yfinance_quarterly.
+        Sanayi/broker/banka eşikleri kullanılmaz; lending-spesifik eşikler.
+        Piotroski: limited, final skora dahil değil.
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        is_ = data.get("is_", pd.DataFrame())
+        bs  = data.get("bs",  pd.DataFrame())
+
+        # Stale veri kontrolü
+        if _is_lending_stale(data):
+            flags.append(
+                "Finansal veri son dönemi güncel ana dönemden eski görünüyor; "
+                "skor sınırlı veriyle hesaplanmıştır."
+            )
+
+        # Zorunlu veri kontrolü
+        ni_ttm       = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+        equity_check = _yf_get(bs,  YF_TOTAL_EQUITY_KEYS)
+        ta_check     = _yf_get(bs,  YF_TOTAL_ASSETS_KEYS)
+
+        if ni_ttm is None or equity_check is None or ta_check is None:
+            flags.append(
+                "Lending operational modeli için zorunlu finansal satırlar eksik "
+                "olduğu için skor hesaplanamadı."
+            )
+            return self._empty_result(ticker, sector_group, flags, "veri yetersiz")
+
+        # Alt skor hesabı
+        prof_s, prof_r, prof_q = self._lending_profitability(
+            data, ni_ttm, equity_check, ta_check, flags
+        )
+        cap_s,  cap_r,  cap_q  = self._lending_capital_adequacy(
+            data, equity_check, ta_check, flags
+        )
+        grow_s, grow_r, grow_q = self._lending_growth(data, flags)
+        stab_s, stab_r, stab_q = self._lending_stability(data, flags)
+        val_s,  val_r,  val_q  = self._lending_valuation(data, sector_group, flags)
+
+        # Profitability kalite eşiği
+        if prof_q < 0.60:
+            flags.append(
+                f"Lending modeli profitability kalitesi eşiğin altında "
+                f"(quality={prof_q:.2f} < 0.60)."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "profitability kalitesi yetersiz"
+            )
+
+        # Piotroski: limited ama final skora dahil değil
+        flags.append(_LENDING_PIOTROSKI_MSG)
+        piotr_limited = PiotroskiResult(
+            score=None, normalized=None, calculated_criteria=0,
+            total_criteria=9, coverage=0.0, confidence="not_applicable",
+            applicability="limited", missing_criteria=[], details={},
+        )
+
+        reasons = {
+            "profitability": (prof_s, prof_r, prof_q),
+            "balance_sheet": (cap_s,  cap_r,  cap_q),   # capital_adequacy
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r, grow_q),
+            "valuation":     (val_s,  val_r,  val_q),
+            "stability":     (stab_s, stab_r, stab_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _LENDING_WEIGHTS)
+
+        if quality < 0.55:
+            final_score = None
+            flags.append(
+                f"Lending finansal skoru hesaplanamadı: genel veri kalitesi "
+                f"yetersiz (quality={quality:.2f} < 0.55)."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        flags.append(
+            "Lending modeli V1: capital_adequacy skoru "
+            "finansal_subscores.balance_sheet alanında raporlanmaktadır."
+        )
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(cap_s),
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = None,
+        )
+
+        explanation = self._explain(subscores, piotr_limited, sector_group)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr_limited,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "yfinance_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _lending_profitability(
+        self,
+        data:         dict,
+        ni_ttm:       Optional[float],
+        equity:       Optional[float],
+        total_assets: Optional[float],
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """ROE (TTM) + ROA (TTM) + Gelir marjı proxy.
+
+        Gelir marjı: NIM varsa (IntInc-IntExp)/TA, yoksa NI/Revenue.
+        Sanayi borç eşikleri kullanılmaz.
+        """
+        try:
+            is_ = data.get("is_", pd.DataFrame())
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ROE = TTM NI / equity  [0, 0.30]
+            s = _normalize(_safe_div(ni_ttm, equity), 0.0, 0.30)
+            if s is not None: scored.append((s, 0.35))
+            else:             miss += 1
+
+            # ROA = TTM NI / total_assets  [0, 0.12] — lending-specific ceiling
+            s = _normalize(_safe_div(ni_ttm, total_assets), 0.0, 0.12)
+            if s is not None: scored.append((s, 0.35))
+            else:             miss += 1
+
+            # Gelir marjı proxy
+            int_inc = (_yf_ttm(is_, YF_INTEREST_INCOME_GROSS_KEYS) or
+                       _yf_ttm(is_, YF_NET_INTEREST_INCOME_KEYS))
+            int_exp = _yf_ttm(is_, YF_INTEREST_EXPENSE_KEYS)
+            revenue = _yf_ttm(is_, YF_REVENUE_KEYS) or int_inc
+
+            im_score: Optional[float] = None
+            if int_inc is not None and int_exp is not None:
+                nii = int_inc - int_exp
+                if nii > 0:
+                    nim = _safe_div(nii, total_assets)
+                    im_score = _normalize(nim, 0.0, 0.08)   # NIM [0, 8%]
+                # NIM negatif/sıfır ise revenue proxy'e geç
+            if im_score is None and revenue is not None and revenue > 0:
+                ni_margin = _safe_div(ni_ttm, revenue)
+                im_score = _normalize(ni_margin, 0.0, 0.50)  # NI/Rev [0, 50%]
+
+            if im_score is not None: scored.append((im_score, 0.30))
+            else:                    miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/lending] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _lending_capital_adequacy(
+        self,
+        data:         dict,
+        equity:       Optional[float],
+        total_assets: Optional[float],
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity/TA + FinDebt/Equity.
+
+        Lending-spesifik eşikler: Eq/TA [0.06,0.35]; FD/Eq [0,8] reverse.
+        Sanayi current_ratio, debt_to_ebitda kullanılmaz.
+        """
+        try:
+            bs = data.get("bs", pd.DataFrame())
+            fin_debt = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity / Total Assets  [0.06, 0.35]
+            s = _normalize(_safe_div(equity, total_assets), 0.06, 0.35)
+            if s is not None: scored.append((s, 0.55))
+            else:             miss += 1
+
+            # Financial Debt / Equity  [0.0, 8.0]  reverse
+            if fin_debt is not None and equity is not None and equity > 0:
+                s = _normalize(fin_debt / equity, 0.0, 8.0, reverse=True)
+                if s is not None: scored.append((s, 0.45))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/lending] capital_adequacy: {e}")
+            return None, "missing", 0.0
+
+    def _lending_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """NI YoY + Equity YoY + Revenue/IntInc YoY.
+
+        Aynı çeyrek karşılaştırması; yeterli dönem yoksa yıllık fallback.
+        Cap: NI/Rev ±300%, Equity ±200%.
+        """
+        try:
+            is_  = data.get("is_", pd.DataFrame())
+            bs   = data.get("bs",  pd.DataFrame())
+            is_y = data.get("is_y")
+            bs_y = data.get("bs_y")
+            n_is = is_.shape[1]
+            n_bs = bs.shape[1]
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+            used_yearly = False
+
+            def yf_at(df, keys, col):
+                if df is None: return None
+                for k in keys:
+                    if k in df.index and col < df.shape[1]:
+                        v = df.loc[k].iloc[col]
+                        return float(v) if pd.notna(v) else None
+                return None
+
+            def yoy(curr, prev, cap):
+                if curr is None or prev is None or prev == 0: return None
+                return max(-cap, min(cap, (curr - prev) / abs(prev)))
+
+            # NI YoY (cap ±300%)
+            ni_curr  = _yf_ttm(is_, YF_NET_INCOME_KEYS, 0)
+            ni_prev  = _yf_ttm(is_, YF_NET_INCOME_KEYS, 4) if n_is >= 8 else None
+            if (ni_curr is None or ni_prev is None) and is_y is not None and is_y.shape[1] >= 2:
+                nc  = _yf_get(is_y, YF_NET_INCOME_KEYS)
+                np_ = yf_at(is_y, YF_NET_INCOME_KEYS, 1)
+                if nc is not None and np_ is not None:
+                    ni_curr, ni_prev, used_yearly = nc, np_, True
+            ni_yoy = yoy(ni_curr, ni_prev, 3.0)
+
+            # Equity YoY (cap ±200%)
+            eq_curr = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            eq_prev = yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+            if (eq_curr is None or eq_prev is None) and bs_y is not None and bs_y.shape[1] >= 2:
+                ec = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS)
+                ep = yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                if eq_curr is None and ec is not None: eq_curr, used_yearly = ec, True
+                if eq_prev is None and ep is not None: eq_prev, used_yearly = ep, True
+            eq_yoy = yoy(eq_curr, eq_prev, 2.0)
+
+            # Revenue/IntInc YoY (cap ±300%)
+            rev_keys = (YF_INTEREST_INCOME_GROSS_KEYS +
+                        YF_NET_INTEREST_INCOME_KEYS +
+                        YF_REVENUE_KEYS)
+            rev_curr = _yf_ttm(is_, rev_keys, 0)
+            rev_prev = _yf_ttm(is_, rev_keys, 4) if n_is >= 8 else None
+            if (rev_curr is None or rev_prev is None) and is_y is not None and is_y.shape[1] >= 2:
+                rc  = _yf_get(is_y, rev_keys)
+                rp  = yf_at(is_y, rev_keys, 1)
+                if rc is not None and rp is not None:
+                    rev_curr, rev_prev, used_yearly = rc, rp, True
+            rev_yoy = yoy(rev_curr, rev_prev, 3.0)
+
+            if used_yearly:
+                flags.append(
+                    "Lending growth skorunda çeyreklik dönem yetersiz; "
+                    "yıllık veri destekleyici kullanıldı."
+                )
+
+            for rate, w in [(ni_yoy, 0.40), (eq_yoy, 0.35), (rev_yoy, 0.25)]:
+                s = _normalize(rate, *_T["growth"])
+                if s is not None: scored.append((s, w))
+                else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/lending] growth: {e}")
+            return None, "missing", 0.0
+
+    def _lending_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Son 4 dönemde pozitif NI sayısı + NI volatilitesi."""
+        try:
+            is_ = data.get("is_", pd.DataFrame())
+
+            ni_all: List[float] = []
+            for k in YF_NET_INCOME_KEYS:
+                if k in is_.index:
+                    ni_all = [float(v) for v in is_.loc[k] if pd.notna(v)]
+                    break
+
+            if not ni_all:
+                return None, "missing", 0.0
+
+            ni_last4 = ni_all[:4]
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Pozitif NI sayısı (0/4 → 0, 4/4 → 10)
+            pos_count = sum(1 for v in ni_last4 if v > 0)
+            scored.append(((pos_count / 4) * 10.0, 0.60))
+
+            # NI volatilitesi: CV ters normalize [0, 2]
+            if len(ni_all) >= 3:
+                mean_abs = abs(float(np.mean(ni_all)))
+                if mean_abs > 0:
+                    cv = float(np.std(ni_all)) / mean_abs
+                    s  = _normalize(cv, 0.0, 2.0, reverse=True)
+                    if s is not None: scored.append((s, 0.40))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/lending] stability: {e}")
+            return None, "missing", 0.0
+
+    def _lending_valuation(
+        self,
+        data:         dict,
+        sector_group: str,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/E + P/B (yfinance info veya marketCap hesabı)."""
+        try:
+            is_  = data.get("is_", pd.DataFrame())
+            bs   = data.get("bs",  pd.DataFrame())
+            info = data.get("info") or {}
+
+            fk_high   = _FK_HIGH.get(sector_group, 30.0)
+            pddd_high = _PDDD_HIGH.get(sector_group, 4.0)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # P/E
+            pe_added = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pe_added = True
+            if not pe_added:
+                ni_ttm_v   = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                if market_cap and ni_ttm_v and ni_ttm_v > 0:
+                    pe = market_cap / ni_ttm_v
+                    if pe > 0:
+                        s = _normalize(pe, 0.0, fk_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pe_added = True
+                if not pe_added:
+                    miss += 1
+
+            # P/B
+            pb_added = False
+            price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+            if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+                s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pb_added = True
+            if not pb_added:
+                equity_v   = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                if market_cap and equity_v and equity_v > 0:
+                    pb = market_cap / equity_v
+                    if pb > 0:
+                        s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pb_added = True
+                if not pb_added:
+                    miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/lending] valuation: {e}")
+            return None, "missing", 0.0
 
     # ════════════════════════════════════════════════════════════════════════
     # Broker Operational V1 Model
