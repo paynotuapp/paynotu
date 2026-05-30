@@ -410,10 +410,10 @@ def daily_job(tickers: list[str] | None = None):
             q05 = float(np.percentile(valid_scores, 5))
             q95 = float(np.percentile(valid_scores, 95))
 
-        if valid_score_count >= 100 and q95 is not None and q95 > q05:
+        if valid_score_count >= 100 and q05 is not None and q95 is not None and q95 > q05:
             db.collection("system_config").document("motor_thresholds").set({
-                "spek_q05":               round(q05, 4),
-                "spek_q95":               round(q95, 4),
+                "spek_q05":               round(float(q05), 4),
+                "spek_q95":               round(float(q95), 4),
                 "spek_distribution_date": date.today().strftime("%Y-%m-%d"),
                 "spek_universe_count":    valid_score_count,
                 "spek_percentile_method": "q05_q95",
@@ -524,9 +524,26 @@ def daily_job(tickers: list[str] | None = None):
 
                 # ── Fundamental Engine ──────────────────────────────────────
                 try:
-                    _hd_fund  = ticker_docs.get(ticker) or {}
-                    _sektor   = _hd_fund.get("industry") or _hd_fund.get("sektor") or ""
-                    fund_res  = fund_engine.calculate(ticker, sektor=_sektor)
+                    _hd_fund      = ticker_docs.get(ticker) or {}
+                    # Firestore KAP sector routing öncelik sırası:
+                    # paynotu_sector_group > financial_model > kap_alt_sektor > kap_ana_sektor > sektor
+                    _sector_group = (
+                        _hd_fund.get("paynotu_sector_group") or
+                        _hd_fund.get("financial_model") or
+                        None
+                    )
+                    _sektor = (
+                        _hd_fund.get("kap_alt_sektor") or
+                        _hd_fund.get("kap_ana_sektor") or
+                        _hd_fund.get("sektor") or
+                        _hd_fund.get("sector") or
+                        ""
+                    )
+                    fund_res  = fund_engine.calculate(
+                        ticker,
+                        sektor=_sektor,
+                        sector_group=_sector_group,
+                    )
                     _pio      = fund_res.piotroski
                     _fsub     = fund_res.subscores
                     db.collection("hisseler").document(ticker).update({

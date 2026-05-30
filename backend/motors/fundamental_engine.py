@@ -92,6 +92,43 @@ _SECTOR_EXACT: Dict[str, str] = {
     "BANK":               "bank",
 }
 
+# ── Firestore'dan gelen canonical sector_group değerleri ─────────────────────
+# Bu değerler _get_sector_group() tarafından doğrudan geçirilir.
+_CANONICAL_SECTOR_GROUPS: set = {
+    "industrial",
+    "bank",
+    "insurance",
+    "gyo",
+    "holding",
+    "financial_special",
+    "investment_trust",
+    "technology_operational",
+    "energy_utility",
+    "service_operational",
+    "real_estate_operational",
+    "unknown",
+}
+
+# Henüz özel modeli olmayan gruplar → skor üretme, "Veri Yetersiz" döndür
+_UNSUPPORTED_GROUPS: set = {
+    "financial_special",
+    "investment_trust",
+}
+
+# V1'de genel operasyonel (industrial) modelle hesaplanan genişletilmiş gruplar
+# Compute fonksiyonlarına "industrial" olarak iletilir; flag eklenir.
+_COMPUTE_GROUP_MAP: Dict[str, str] = {
+    "technology_operational":  "industrial",
+    "energy_utility":          "industrial",
+    "service_operational":     "industrial",
+    "real_estate_operational": "industrial",
+}
+
+_V1_OPERATIONAL_FLAG = (
+    "Bu sektör V1'de genel operasyonel model ile hesaplanmıştır; "
+    "sektör özel eşikleri sonraki etapta uygulanacaktır."
+)
+
 # ── Alt skor ağırlıkları ──────────────────────────────────────────────────────
 _WEIGHTS: Dict[str, float] = {
     "profitability": 0.25,
@@ -537,28 +574,50 @@ class FundamentalEngine:
 
     def calculate(
         self,
-        ticker:  str,
-        sektor:  Optional[str] = None,
+        ticker:       str,
+        sektor:       Optional[str] = None,
+        sector_group: Optional[str] = None,   # Firestore canonical değeri öncelikli
     ) -> FundamentalResult:
-        sector_group = self._get_sector_group(sektor)
+        # ── Sektör grubu belirle ────────────────────────────────────────────
+        # sector_group parametresi canonical ise doğrudan kullan;
+        # yoksa sektor string'inden tahmin et.
+        if sector_group and sector_group in _CANONICAL_SECTOR_GROUPS:
+            sg = sector_group
+        else:
+            sg = self._get_sector_group(sektor)
+
         flags: List[str] = []
 
-        data = self._fetch_data(ticker, sector_group, flags)
+        # ── Guard: henüz modeli olmayan gruplar ────────────────────────────
+        if sg in _UNSUPPORTED_GROUPS:
+            flags.append(
+                f"{sg} sektör grubu için finansal skor modeli henüz "
+                "aktif değildir."
+            )
+            return self._empty_result(ticker, sg, flags, "model henüz aktif değil")
+
+        # ── V1 genişletilmiş gruplar: industrial modele eşle + flag ───────
+        compute_sg = _COMPUTE_GROUP_MAP.get(sg, sg)
+        if compute_sg != sg:
+            flags.append(_V1_OPERATIONAL_FLAG)
+
+        data = self._fetch_data(ticker, sg, flags)
         if data is None:
-            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+            return self._empty_result(ticker, sg, flags, "veri çekilemedi")
 
         # Alt skorlar + (reason, metric_quality) — 3-tuple
-        prof_s,  prof_r,  prof_q  = self._compute_profitability(data, sector_group, flags)
-        bs_s,    bs_r,    bs_q    = self._compute_balance_sheet(data, sector_group, flags)
-        cf_s,    cf_r,    cf_q    = self._compute_cash_flow(data, sector_group, flags)
+        # compute_sg ile hesapla (industrial model fallback dahil)
+        prof_s,  prof_r,  prof_q  = self._compute_profitability(data, compute_sg, flags)
+        bs_s,    bs_r,    bs_q    = self._compute_balance_sheet(data, compute_sg, flags)
+        cf_s,    cf_r,    cf_q    = self._compute_cash_flow(data, compute_sg, flags)
         grow_s,  grow_r,  grow_q  = self._compute_growth(data, flags)
-        val_s,   val_r,   val_q   = self._compute_valuation(data, sector_group, flags)
+        val_s,   val_r,   val_q   = self._compute_valuation(data, compute_sg, flags)
         stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags)
-        piotr    = self._compute_piotroski(data, sector_group, flags)
+        piotr    = self._compute_piotroski(data, compute_sg, flags)
 
         piotr_s = piotr.normalized if piotr else None
         piotr_r = (
-            "not_applicable" if (piotr is None and sector_group in ("bank", "insurance"))
+            "not_applicable" if (piotr is None and compute_sg in ("bank", "insurance"))
             else ("missing"  if piotr is None else None)
         )
         if piotr_r == "not_applicable":
@@ -604,7 +663,7 @@ class FundamentalEngine:
             piotroski     = _r2(piotr_s),
         )
 
-        explanation = self._explain(subscores, piotr, sector_group)
+        explanation = self._explain(subscores, piotr, compute_sg)
         # Güvenlik: açıklamada yasak kelime olmamalı
         if _contains_forbidden(explanation):
             explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
@@ -618,7 +677,7 @@ class FundamentalEngine:
             piotroski=piotr,
             financial_flags=flags,
             explanation=explanation,
-            sector_group=sector_group,
+            sector_group=sg,           # Firestore canonical değeri korunur
             data_source=data.get("data_source", "borsapy_yearly"),
             period=data.get("period"),
         )
@@ -628,6 +687,10 @@ class FundamentalEngine:
     def _get_sector_group(self, sektor: Optional[str]) -> str:
         if not sektor:
             return "unknown"
+        # Firestore'dan gelen canonical değerleri doğrudan geçir
+        stripped = str(sektor).strip()
+        if stripped in _CANONICAL_SECTOR_GROUPS:
+            return stripped
         s = _normalize_tr(sektor)
         if s in _SECTOR_EXACT:
             return _SECTOR_EXACT[s]
