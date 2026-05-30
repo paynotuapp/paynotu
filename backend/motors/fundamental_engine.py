@@ -728,6 +728,18 @@ class FundamentalEngine:
                 ticker, sg, sector_profile, flags
             )
 
+        # ── Asset Management özel yolu ──────────────────────────────────────
+        # V1: lending_operational modeli kullanılır; AUM alacak uyarısı eklenir.
+        if sg == "financial_special" and sector_profile == "asset_mgmt":
+            flags.append(
+                "Varlık yönetim şirketi lending modeli üzerinden hesaplandı; "
+                "OtherReceivables kaynaklı bilanço şişmesi ROA'yı sistematik "
+                "olarak düşük gösterebilir."
+            )
+            return self._calculate_lending_operational(
+                ticker, sg, sector_profile, flags
+            )
+
         # ── Guard: henüz modeli olmayan gruplar ────────────────────────────
         if sg in _UNSUPPORTED_GROUPS:
             flags.append(
