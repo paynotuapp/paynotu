@@ -129,6 +129,39 @@ _V1_OPERATIONAL_FLAG = (
     "sektör özel eşikleri sonraki etapta uygulanacaktır."
 )
 
+# ── Piotroski uygulanabilirlik sabitleri ──────────────────────────────────────
+_PIOTROSKI_NOT_APPLICABLE_GROUPS: set = {
+    "bank", "insurance", "financial_special", "investment_trust", "unknown",
+}
+_PIOTROSKI_LIMITED_GROUPS: set = {"gyo", "holding"}
+
+_PIOTROSKI_NA_MSGS: Dict[str, str] = {
+    "bank":              "Bankalar için klasik Piotroski F-Score uygulanabilir değildir.",
+    "insurance":         "Sigorta şirketleri için klasik Piotroski F-Score uygulanabilir değildir.",
+    "financial_special": "Financial special sektör grubu için klasik Piotroski F-Score uygulanabilir değildir.",
+    "investment_trust":  "Investment trust sektör grubu için klasik Piotroski F-Score uygulanabilir değildir.",
+    "unknown":           "Sektör grubu bilinmediğinden Piotroski F-Score hesaplanamadı.",
+}
+_PIOTROSKI_LIMITED_MSG = (
+    "Bu sektörde Piotroski kriterleri sınırlı yorumlanmalıdır."
+)
+_PIOTROSKI_OPERATIONAL_FLAG = (
+    "Piotroski skoru genel operasyonel finansal tablo mantığıyla hesaplanmıştır."
+)
+_PIOTROSKI_OPERATIONAL_GROUPS: set = {
+    "technology_operational", "energy_utility",
+    "service_operational", "real_estate_operational",
+}
+
+
+def _piotroski_confidence(calc: int) -> str:
+    """Hesaplanan kriter sayısına göre confidence seviyesi."""
+    if calc >= 7:
+        return "high"
+    if calc >= 5:
+        return "medium"
+    return "insufficient"
+
 # ── Alt skor ağırlıkları ──────────────────────────────────────────────────────
 _WEIGHTS: Dict[str, float] = {
     "profitability": 0.25,
@@ -358,6 +391,10 @@ class PiotroskiResult:
     normalized:          Optional[float]
     calculated_criteria: int
     total_criteria:      int = 9
+    coverage:            float = 0.0            # calculated_criteria / 9
+    confidence:          str = "insufficient"   # high/medium/insufficient/not_applicable
+    applicability:       str = "applicable"     # applicable/limited/not_applicable
+    missing_criteria:    List[str] = field(default_factory=list)
     details:             dict = field(default_factory=dict)
 
 
@@ -615,16 +652,22 @@ class FundamentalEngine:
         stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags)
         piotr    = self._compute_piotroski(data, compute_sg, flags)
 
-        piotr_s = piotr.normalized if piotr else None
-        piotr_r = (
-            "not_applicable" if (piotr is None and compute_sg in ("bank", "insurance"))
-            else ("missing"  if piotr is None else None)
-        )
-        if piotr_r == "not_applicable":
-            piotr_q = 1.0
-        elif piotr and piotr.normalized is not None:
-            piotr_q = round(piotr.calculated_criteria / 9, 2)
+        # Piotroski kalite mantığı: coverage → quality, applicability → reason
+        if piotr is not None:
+            piotr_s = piotr.normalized
+            if piotr.applicability == "not_applicable":
+                piotr_r = "not_applicable"
+                piotr_q = 1.0
+            elif piotr.normalized is not None:
+                piotr_r = None
+                piotr_q = piotr.coverage   # coverage-weighted quality
+            else:
+                piotr_r = "missing"
+                piotr_q = 0.0
         else:
+            # Sadece exception path'te None kalır
+            piotr_s = None
+            piotr_r = "missing"
             piotr_q = 0.0
 
         reasons = {
@@ -1888,24 +1931,40 @@ class FundamentalEngine:
         sector_group: str,
         flags:        List[str],
     ) -> Optional[PiotroskiResult]:
-        if sector_group in ("bank", "insurance"):
-            return None   # not_applicable
+        # ── Uygulanamaz sektörler ─────────────────────────────────────────
+        if sector_group in _PIOTROSKI_NOT_APPLICABLE_GROUPS:
+            msg = _PIOTROSKI_NA_MSGS.get(
+                sector_group,
+                f"{sector_group} sektör grubu için klasik Piotroski F-Score "
+                "uygulanabilir değildir.",
+            )
+            flags.append(msg)
+            return PiotroskiResult(
+                score=None, normalized=None, calculated_criteria=0,
+                total_criteria=9, coverage=0.0, confidence="not_applicable",
+                applicability="not_applicable", missing_criteria=[], details={},
+            )
+
+        limited      = sector_group in _PIOTROSKI_LIMITED_GROUPS
+        operational  = sector_group in _PIOTROSKI_OPERATIONAL_GROUPS
 
         try:
             if data.get("yf"):
-                return self._piotroski_yfinance(data, flags)
+                return self._piotroski_yfinance(data, flags, limited, operational)
             bs, is_, cf = data["bs"], data["is_"], data.get("cf")
             n_bs = bs.shape[1]
             n_is = is_.shape[1]
 
             details: Dict[str, Optional[int]] = {}
-            p_score = 0
-            calc    = 0
+            p_score  = 0
+            calc     = 0
+            missing: List[str] = []
 
             def add(name: str, value: Optional[bool]) -> None:
                 nonlocal p_score, calc
                 if value is None:
                     details[name] = None
+                    missing.append(name)
                     return
                 v = 1 if value else 0
                 details[name] = v
@@ -1914,12 +1973,12 @@ class FundamentalEngine:
 
             # ── F1: Net kar pozitif? ──────────────────────────────────────
             nk0 = _get_row_period(is_, _NET_PROFIT_KEYS, 0)
-            add("f1_net_kar_pozitif",
+            add("f1_positive_net_income",
                 (nk0 > 0) if nk0 is not None else None)
 
             # ── F2: İşletme CF pozitif? ───────────────────────────────────
             op_cf0 = _get_row(cf, _OPERATING_CF_KEYS) if cf is not None else None
-            add("f2_opcf_pozitif",
+            add("f2_positive_operating_cash_flow",
                 (op_cf0 > 0) if op_cf0 is not None else None)
 
             # ── F3: ROA iyileşti? ─────────────────────────────────────────
@@ -1929,13 +1988,13 @@ class FundamentalEngine:
                 tv1  = _get_row_period(bs, _TOTAL_ASSETS_KEYS, 1)
                 roa0 = _safe_div(nk0, tv0)
                 roa1 = _safe_div(nk1, tv1)
-                add("f3_roa_iyilesti",
+                add("f3_roa_improved",
                     (roa0 > roa1) if (roa0 is not None and roa1 is not None) else None)
             else:
-                add("f3_roa_iyilesti", None)
+                add("f3_roa_improved", None)
 
             # ── F4: CF > Net Kar? (tahakkuk kalitesi) ────────────────────
-            add("f4_cf_gt_net",
+            add("f4_operating_cash_flow_greater_than_net_income",
                 (op_cf0 > nk0) if (op_cf0 is not None and nk0 is not None) else None)
 
             # ── F5: Finansal borç oranı azaldı? ──────────────────────────
@@ -1946,10 +2005,10 @@ class FundamentalEngine:
                 tv1 = _get_row_period(bs, _TOTAL_ASSETS_KEYS, 1)
                 r0  = _safe_div(fb0, tv0)
                 r1  = _safe_div(fb1, tv1)
-                add("f5_borc_azaldi",
+                add("f5_leverage_decreased",
                     (r0 < r1) if (r0 is not None and r1 is not None) else None)
             else:
-                add("f5_borc_azaldi", None)
+                add("f5_leverage_decreased", None)
 
             # ── F6: Cari oran iyileşti? ───────────────────────────────────
             if n_bs >= 2:
@@ -1959,19 +2018,19 @@ class FundamentalEngine:
                 kl1 = _get_row_period(bs, _CURRENT_LIAB_KEYS, 1)
                 cr0 = _safe_div(dv0, kl0)
                 cr1 = _safe_div(dv1, kl1)
-                add("f6_cari_oran_iyilesti",
+                add("f6_current_ratio_improved",
                     (cr0 > cr1) if (cr0 is not None and cr1 is not None) else None)
             else:
-                add("f6_cari_oran_iyilesti", None)
+                add("f6_current_ratio_improved", None)
 
             # ── F7: Yeni hisse basılmadı? ─────────────────────────────────
             if n_bs >= 2:
                 os0 = _get_row_period(bs, _PAID_CAPITAL_KEYS, 0)
                 os1 = _get_row_period(bs, _PAID_CAPITAL_KEYS, 1)
-                add("f7_yeni_hisse_yok",
+                add("f7_no_share_dilution",
                     (os0 <= os1 * 1.01) if (os0 is not None and os1 is not None) else None)
             else:
-                add("f7_yeni_hisse_yok", None)
+                add("f7_no_share_dilution", None)
 
             # ── F8: Brüt kar marjı iyileşti? ─────────────────────────────
             if n_is >= 2:
@@ -1981,10 +2040,10 @@ class FundamentalEngine:
                 sa1 = _get_row_period(is_, _REVENUE_KEYS, 1)
                 bm0 = _safe_div(bk0, sa0)
                 bm1 = _safe_div(bk1, sa1)
-                add("f8_brut_marj_iyilesti",
+                add("f8_gross_margin_improved",
                     (bm0 > bm1) if (bm0 is not None and bm1 is not None) else None)
             else:
-                add("f8_brut_marj_iyilesti", None)
+                add("f8_gross_margin_improved", None)
 
             # ── F9: Aktif devir hızı iyileşti? ───────────────────────────
             if n_is >= 2 and n_bs >= 2:
@@ -1994,30 +2053,45 @@ class FundamentalEngine:
                 tv1 = _get_row_period(bs, _TOTAL_ASSETS_KEYS, 1)
                 at0 = _safe_div(sa0, tv0)
                 at1 = _safe_div(sa1, tv1)
-                add("f9_aktif_devir_iyilesti",
+                add("f9_asset_turnover_improved",
                     (at0 > at1) if (at0 is not None and at1 is not None) else None)
             else:
-                add("f9_aktif_devir_iyilesti", None)
+                add("f9_asset_turnover_improved", None)
 
-            # ── Normalize ─────────────────────────────────────────────────
+            # ── Coverage / confidence / normalize ─────────────────────────
+            coverage     = round(calc / 9, 2)
+            confidence   = _piotroski_confidence(calc)
+            applicability = "limited" if limited else "applicable"
+            normalized   = round(p_score / calc * 10, 2) if calc >= 5 else None
+
             if calc < 5:
-                normalized = None
                 flags.append(
-                    f"Piotroski skoru hesaplanamadı: yeterli kriter yok "
-                    f"({calc}/9)."
+                    f"Piotroski skoru hesaplanamadı: yeterli kriter yok ({calc}/9)."
+                )
+            elif missing:
+                flags.append(
+                    f"Piotroski skoru {calc} kriter üzerinden hesaplanmıştır "
+                    f"({len(missing)} kriter veri eksikliği nedeniyle hesaplanamadı)."
                 )
             else:
-                normalized = round(p_score / calc * 10, 2)
                 flags.append(
-                    f"Piotroski {p_score}/9 kriterin {calc} tanesi "
-                    f"hesaplanarak üretildi."
+                    f"Piotroski skoru {calc} kriter üzerinden hesaplanmıştır."
                 )
+
+            if limited:
+                flags.append(_PIOTROSKI_LIMITED_MSG)
+            if operational:
+                flags.append(_PIOTROSKI_OPERATIONAL_FLAG)
 
             return PiotroskiResult(
                 score=p_score,
                 normalized=normalized,
                 calculated_criteria=calc,
                 total_criteria=9,
+                coverage=coverage,
+                confidence=confidence,
+                applicability=applicability,
+                missing_criteria=missing,
                 details=details,
             )
 
@@ -2026,7 +2100,8 @@ class FundamentalEngine:
             return None
 
     def _piotroski_yfinance(
-        self, data: dict, flags: List[str]
+        self, data: dict, flags: List[str],
+        limited: bool = False, operational: bool = False,
     ) -> Optional[PiotroskiResult]:
         is_ = data["is_"]
         bs  = data["bs"]
@@ -2035,13 +2110,15 @@ class FundamentalEngine:
         n_bs = bs.shape[1]
 
         details: Dict[str, Optional[int]] = {}
-        p_score = 0
-        calc    = 0
+        p_score  = 0
+        calc     = 0
+        missing: List[str] = []
 
         def add(name: str, value: Optional[bool]) -> None:
             nonlocal p_score, calc
             if value is None:
                 details[name] = None
+                missing.append(name)
                 return
             v = 1 if value else 0
             details[name] = v
@@ -2117,20 +2194,39 @@ class FundamentalEngine:
             add("f8_brut_marj_iyilesti",    None)
             add("f9_aktif_devir_iyilesti",  None)
 
+        coverage      = round(calc / 9, 2)
+        confidence    = _piotroski_confidence(calc)
+        applicability = "limited" if limited else "applicable"
+        normalized    = round(p_score / calc * 10, 2) if calc >= 5 else None
+
         if calc < 5:
-            normalized = None
             flags.append(
-                f"Piotroski (yfinance) hesaplanamadı: yeterli kriter yok ({calc}/9).")
+                f"Piotroski skoru hesaplanamadı: yeterli kriter yok ({calc}/9)."
+            )
+        elif missing:
+            flags.append(
+                f"Piotroski skoru {calc} kriter üzerinden hesaplanmıştır "
+                f"({len(missing)} kriter veri eksikliği nedeniyle hesaplanamadı)."
+            )
         else:
-            normalized = round(p_score / calc * 10, 2)
             flags.append(
-                f"Piotroski {p_score}/9 kriterin {calc} tanesi hesaplanarak üretildi.")
+                f"Piotroski skoru {calc} kriter üzerinden hesaplanmıştır."
+            )
+
+        if limited:
+            flags.append(_PIOTROSKI_LIMITED_MSG)
+        if operational:
+            flags.append(_PIOTROSKI_OPERATIONAL_FLAG)
 
         return PiotroskiResult(
             score=p_score,
             normalized=normalized,
             calculated_criteria=calc,
             total_criteria=9,
+            coverage=coverage,
+            confidence=confidence,
+            applicability=applicability,
+            missing_criteria=missing,
             details=details,
         )
 
