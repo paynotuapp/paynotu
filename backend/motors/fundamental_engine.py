@@ -70,14 +70,17 @@ _PDDD_HIGH = {"bank": 2.0, "gyo": 1.5, "insurance": 2.0,
 
 # ── Sektör eşleme tablosu (normalize edilmiş Türkçe → group) ─────────────────
 _SECTOR_MAP: Dict[str, str] = {
-    "BANKACILIK":  "bank",
-    "FINANSAL":    "bank",
-    "KALKINMA":    "bank",
-    "SIGORTA":     "insurance",
+    "BANKACILIK":   "bank",
+    "FINANSAL":     "bank",
+    "KALKINMA":     "bank",
+    "VARLIK":       "bank",   # Varlık Yönetimi
+    "ARACI KURUM":  "bank",   # Aracı Kurumlar
+    "SERMAYE PIYA": "bank",   # Sermaye Piyasaları
+    "SIGORTA":      "insurance",
     "SIGORTACILIK": "insurance",
-    "GYO":         "gyo",
-    "GAYRIMENKUL": "gyo",
-    "HOLDING":     "holding",
+    "GYO":          "gyo",
+    "GAYRIMENKUL":  "gyo",
+    "HOLDING":      "holding",
 }
 
 # Tam eşleşme gerektiren girdiler — alt string aramasına girmeden önce kontrol edilir.
@@ -743,7 +746,7 @@ class FundamentalEngine:
             t   = bp.Ticker(ticker)
             bs  = None
             is_ = None
-            for fg in ("UFRS_B", "UFRS", "TMS_17"):
+            for fg in ("UFRS", "TMS_17", "UFRS_B"):
                 try:
                     _bs  = t.get_balance_sheet(financial_group=fg)
                     _is  = t.get_income_stmt(financial_group=fg)

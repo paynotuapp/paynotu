@@ -990,7 +990,7 @@ class FinancialEngine:
         import borsapy as bp
         t = bp.Ticker(ticker)
         bs, is_ = None, None
-        for fg in ("UFRS_B", "UFRS", "TMS_17"):
+        for fg in ("UFRS", "TMS_17", "UFRS_B"):
             try:
                 _bs  = t.get_balance_sheet(financial_group=fg)
                 _is  = t.get_income_stmt(financial_group=fg)
