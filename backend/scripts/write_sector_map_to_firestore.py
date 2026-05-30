@@ -53,6 +53,8 @@ def _build_hisse_payload(row: dict) -> dict:
         "paynotu_sector_group":       row["paynotu_sector_group"],
         "financial_model":            row["financial_model"],
         "sector_profile":             row["sector_profile"],
+        "primary_source":             row["primary_source"],
+        "fallback_sources":           row.get("fallback_sources", []),
         "sector_source":              "KAP",
         "sector_source_file":         "sektorler.pdf",
         "sector_source_version":      VERSION,
@@ -179,6 +181,40 @@ def run_dry_run(rows: list[dict], stats: dict) -> dict:
     print(f"\nGROUP DAĞILIMI:")
     for g, c in sorted(stats["by_group"].items()):
         print(f"  {g:35s} {c}")
+
+    # financial_special alt profil kırılımı
+    fs_rows = [r for r in rows if r["paynotu_sector_group"] == "financial_special"]
+    if fs_rows:
+        print(f"\nFINANCIAL_SPECIAL ALT PROFİL DAĞILIMI ({len(fs_rows)} sembol):")
+        profiles: dict[str, list] = {}
+        for r in fs_rows:
+            p = r.get("sector_profile", "?")
+            profiles.setdefault(p, []).append(r["symbol"])
+        for p, syms in sorted(profiles.items()):
+            print(f"  {p:30s} {len(syms):3d}  {syms[:8]}")
+
+        # primary_source kırılımı
+        print(f"\n  primary_source dağılımı:")
+        ps_map: dict[str, list] = {}
+        for r in fs_rows:
+            ps = r.get("primary_source", "?")
+            ps_map.setdefault(ps, []).append(r["symbol"])
+        for ps, syms in sorted(ps_map.items()):
+            print(f"    {ps:30s} {len(syms):3d}  {syms[:6]}")
+
+        # Kontrol sembolleri
+        fs_checks = [
+            "A1CAP","GEDIK","ISMEN","INFO","TERA","GLBMD","SKYMD",
+            "SMRVA","BRKVY","GLCVY","GARFA","VAKFA","VAKFN","ISFIN","KTLEV",
+        ]
+        print(f"\n  Kontrol sembolleri:")
+        for sym in fs_checks:
+            r = sym_map.get(sym)
+            if r:
+                print(f"    {sym:8s} profile={r.get('sector_profile','?'):30s} "
+                      f"primary={r.get('primary_source','?')}")
+            else:
+                print(f"    {sym:8s} CSV'de yok")
 
     if missing_docs:
         print(f"\nFirestore'da bulunamayan semboller ({len(missing_docs)}):")
@@ -339,8 +375,9 @@ def run_verification(symbols: list[str]) -> None:
     hisseler_col = db.collection("hisseler")
 
     VERIFY_FIELDS = [
-        "kap_ana_sektor", "kap_alt_sektor", "paynotu_sector_group",
-        "financial_model", "sector_profile", "sector_verified",
+        "kap_alt_sektor", "paynotu_sector_group",
+        "financial_model", "sector_profile",
+        "primary_source", "fallback_sources", "financial_source_priority",
         "manual_review_required",
     ]
 
@@ -398,9 +435,9 @@ def main():
 
     if args.verify:
         VERIFY_SYMBOLS = [
-            "A1CAP","A1YEN","AKBNK","AKGRT","ISGYO",
-            "KCHOL","FONET","TCELL","ASELS","SMRVA",
-            "THYAO","TUPRS",
+            "A1CAP","GEDIK","ISMEN","INFO","TERA","GLBMD","SKYMD",
+            "SMRVA","BRKVY","GLCVY",
+            "GARFA","VAKFA","VAKFN","ISFIN","KTLEV",
         ]
         run_verification(VERIFY_SYMBOLS)
 

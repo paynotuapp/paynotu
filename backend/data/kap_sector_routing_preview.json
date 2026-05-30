@@ -46,16 +46,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -122,16 +124,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -3030,7 +3034,7 @@
       "kap_alt_sektor": "VARLIK YÖNETİM ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
+      "sector_profile": "asset_mgmt",
       "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
@@ -3039,7 +3043,7 @@
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "isyatirimhisse kapsam dışı; yfinance primary",
+      "routing_note": "Varlık yönetim şirketi; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -3780,16 +3784,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -4558,16 +4562,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -6214,16 +6218,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -6264,16 +6268,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -6470,16 +6476,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -6494,16 +6502,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -6518,7 +6528,7 @@
       "kap_alt_sektor": "VARLIK YÖNETİM ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
+      "sector_profile": "asset_mgmt",
       "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
@@ -6527,7 +6537,7 @@
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "isyatirimhisse kapsam dışı; yfinance primary",
+      "routing_note": "Varlık yönetim şirketi; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -7702,16 +7712,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -7986,16 +7998,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -8112,16 +8124,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -8186,16 +8200,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -8210,16 +8226,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -9456,16 +9474,16 @@
       "kap_alt_sektor": "FİNANSMAN ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli finansman şirketi",
+      "routing_note": "Finansman şirketi; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -9662,16 +9680,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -11270,16 +11288,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -11424,16 +11444,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -11526,16 +11548,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -11626,16 +11650,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -12532,16 +12558,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -13232,16 +13258,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -13490,16 +13516,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -13540,16 +13568,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -13616,7 +13646,7 @@
       "kap_alt_sektor": "VARLIK YÖNETİM ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
+      "sector_profile": "asset_mgmt",
       "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
@@ -13625,7 +13655,7 @@
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "isyatirimhisse kapsam dışı; yfinance primary",
+      "routing_note": "Varlık yönetim şirketi; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -14264,16 +14294,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -14626,16 +14658,18 @@
       "kap_alt_sektor": "ARACI KURUMLAR",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "yfinance_quarterly",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
       "fallback_sources": [
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "SPK lisanslı aracı kurum; banka modeli değil",
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -15274,16 +15308,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -15454,16 +15488,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -15478,16 +15512,16 @@
       "kap_alt_sektor": "FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ",
       "paynotu_sector_group": "financial_special",
       "financial_model": "financial_special",
-      "sector_profile": "financial_special",
-      "primary_source": "isyatirim_group_2",
+      "sector_profile": "lending_operational",
+      "primary_source": "yfinance_quarterly",
       "fallback_sources": [
         "borsapy_yearly"
       ],
       "financial_source_priority": [
-        "isyatirim_group_2",
+        "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "BDDK denetimli; banka modeli değil",
+      "routing_note": "Finansal kiralama/faktoring; yfinance primary",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",

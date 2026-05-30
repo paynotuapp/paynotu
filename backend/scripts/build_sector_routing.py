@@ -93,35 +93,38 @@ _SUB_ROUTING: dict[str, dict] = {
     ),
 
     # ── Financial Special ──────────────────────────────────────────────────────
+    # sector_profile: broker_operational / lending_operational / asset_mgmt /
+    #                 financial_special_unknown
+
+    normalize_tr("ARACI KURUMLAR"): _route(
+        "financial_special", "financial_special", "broker_operational",
+        "isyatirim_group_1",          # group=1 (XI_29) çalışıyor — Etap 3B keşif
+        ["yfinance_quarterly", "borsapy_yearly"],
+        routing_note="SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
+    ),
     normalize_tr("FİNANSAL KİRALAMA VE FAKTORİNG ŞİRKETLERİ"): _route(
-        "financial_special", "financial_special", "financial_special",
-        "isyatirim_group_2",
+        "financial_special", "financial_special", "lending_operational",
+        "yfinance_quarterly",         # IY group=1/2 kapsam dışı; yfinance veriyor
         ["borsapy_yearly"],
-        routing_note="BDDK denetimli; banka modeli değil",
+        routing_note="Finansal kiralama/faktoring; yfinance primary",
     ),
     normalize_tr("FİNANSMAN ŞİRKETLERİ"): _route(
-        "financial_special", "financial_special", "financial_special",
-        "isyatirim_group_2",
+        "financial_special", "financial_special", "lending_operational",
+        "yfinance_quarterly",
         ["borsapy_yearly"],
-        routing_note="BDDK denetimli finansman şirketi",
+        routing_note="Finansman şirketi; yfinance primary",
     ),
     normalize_tr("VARLIK YÖNETİM ŞİRKETLERİ"): _route(
-        "financial_special", "financial_special", "financial_special",
+        "financial_special", "financial_special", "asset_mgmt",
         "yfinance_quarterly",
         ["borsapy_yearly"],
-        routing_note="isyatirimhisse kapsam dışı; yfinance primary",
-    ),
-    normalize_tr("ARACI KURUMLAR"): _route(
-        "financial_special", "financial_special", "financial_special",
-        "yfinance_quarterly",
-        ["borsapy_yearly"],
-        routing_note="SPK lisanslı aracı kurum; banka modeli değil",
+        routing_note="Varlık yönetim şirketi; yfinance primary",
     ),
     normalize_tr("DİĞER MALİ KURULUŞLAR"): _route(
-        "financial_special", "financial_special", "financial_special",
+        "financial_special", "financial_special", "financial_special_unknown",
         "yfinance_quarterly",
         ["borsapy_yearly"],
-        routing_note="Diğer mali kuruluş; manual review önerilir",
+        routing_note="Diğer mali kuruluş; alt model belirsiz",
         manual_review=True,
     ),
 
