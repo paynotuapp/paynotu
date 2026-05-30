@@ -173,6 +173,27 @@ _WEIGHTS: Dict[str, float] = {
     "piotroski":     0.05,
 }
 
+# ── Broker Operational ağırlıkları ────────────────────────────────────────────
+# cash_flow ve piotroski "not_applicable" → _weighted_average tarafından dışlanır.
+# Kalan 5 alt skor: profitability(30) + balance_sheet/capital_strength(25)
+#                   + growth(20) + stability(15) + valuation(10) = 1.00
+_BROKER_WEIGHTS: Dict[str, float] = {
+    "profitability":  0.30,
+    "balance_sheet":  0.25,   # capital_strength bu alana map edilir
+    "cash_flow":      0.15,   # not_applicable — dışlanır
+    "growth":         0.20,
+    "valuation":      0.10,
+    "stability":      0.15,
+    "piotroski":      0.05,   # not_applicable — dışlanır
+}
+
+_BROKER_PIOTROSKI_NA_MSG = (
+    "Aracı kurumlar için klasik Piotroski F-Score uygulanabilir değildir. "
+    "Yapısal CFO volatilitesi ve işlem hacmi kaynaklı gelir satırı anomalisi "
+    "(3C = işlem hacmi, gelir değil) nedeniyle standart kriterler güvenilir "
+    "sonuç üretmez."
+)
+
 # ── borsapy satır adı alias listeleri ────────────────────────────────────────
 _NET_PROFIT_KEYS = [
     "DÖNEM KARI (ZARARI)",
@@ -562,6 +583,37 @@ def _sum_key_latest(df: pd.DataFrame, key: str) -> Optional[float]:
     return _sum_key_period(df, key, 0)
 
 
+def _iy_ttm_sum(
+    df: pd.DataFrame,
+    keys: List[str],
+    n: int = 4,
+    min_valid: int = 2,
+) -> Optional[float]:
+    """İş Yatırım pivotlanmış df'den TTM: ilk n kolon toplamı.
+
+    Kolonlar newest-first sıralı: col 0 = en güncel çeyrek.
+    min_valid: en az bu kadar geçerli çeyrek yoksa None döner.
+    """
+    if df is None or df.empty:
+        return None
+    idx = df.index.str.strip()
+    for key in keys:
+        matches = df[idx == key.strip()]
+        if matches.empty:
+            continue
+        vals: List[float] = []
+        for i in range(min(n, df.shape[1])):
+            v = matches.iloc[0, i]
+            if pd.notna(v):
+                try:
+                    vals.append(float(v))
+                except (TypeError, ValueError):
+                    pass
+        if len(vals) >= min_valid:
+            return sum(vals)
+    return None
+
+
 def _contains_forbidden(text: str, words: List[str] = _FORBIDDEN_WORDS) -> bool:
     for w in words:
         if re.search(rf"\b{re.escape(w)}\b", text.lower()):
@@ -611,19 +663,26 @@ class FundamentalEngine:
 
     def calculate(
         self,
-        ticker:       str,
-        sektor:       Optional[str] = None,
-        sector_group: Optional[str] = None,   # Firestore canonical değeri öncelikli
+        ticker:          str,
+        sektor:          Optional[str] = None,
+        sector_group:    Optional[str] = None,   # Firestore canonical değeri öncelikli
+        financial_model: Optional[str] = None,   # şimdilik kullanılmıyor, imza uyumu için
+        sector_profile:  Optional[str] = None,   # broker_operational vb. alt profil
     ) -> FundamentalResult:
         # ── Sektör grubu belirle ────────────────────────────────────────────
-        # sector_group parametresi canonical ise doğrudan kullan;
-        # yoksa sektor string'inden tahmin et.
         if sector_group and sector_group in _CANONICAL_SECTOR_GROUPS:
             sg = sector_group
         else:
             sg = self._get_sector_group(sektor)
 
         flags: List[str] = []
+
+        # ── Broker Operational özel yolu ────────────────────────────────────
+        # financial_special + broker_operational → V1 broker modeli
+        if sg == "financial_special" and sector_profile == "broker_operational":
+            return self._calculate_broker_operational(
+                ticker, sg, sector_profile, flags
+            )
 
         # ── Guard: henüz modeli olmayan gruplar ────────────────────────────
         if sg in _UNSUPPORTED_GROUPS:
@@ -2363,6 +2422,498 @@ class FundamentalEngine:
         if not parts:
             return "Finansal tablo verisiyle değerlendirme yapıldı."
         return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Broker Operational V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_broker_operational(
+        self,
+        ticker:         str,
+        sector_group:   str,
+        sector_profile: str,
+        flags:          List[str],
+    ) -> FundamentalResult:
+        """Broker Operational V1 model.
+
+        Kaynak: isyatirim_group_1 (primary) → yfinance_quarterly (fallback).
+        3C (Satış Gelirleri) hiçbir hesaplamada kullanılmaz.
+        Piotroski: not_applicable.
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        isyat = data.get("isyat", False)
+        yf    = data.get("yf", False)
+        df    = data["is_"]
+        bs    = data.get("bs", df)
+
+        # Zorunlu veri kontrolü
+        if isyat:
+            ni_ttm       = _iy_ttm_sum(df, _NET_PROFIT_KEYS, n=4)
+            equity_check = _get_row(df, _EQUITY_KEYS)
+            ta_check     = _get_row(df, _TOTAL_ASSETS_KEYS)
+        else:
+            ni_ttm       = _yf_ttm(df, YF_NET_INCOME_KEYS)
+            equity_check = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            ta_check     = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+
+        if ni_ttm is None or equity_check is None or ta_check is None:
+            flags.append(
+                "Broker modeli için zorunlu veri eksik "
+                "(net_income TTM / equity / total_assets)."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "veri yetersiz"
+            )
+
+        # Alt skor hesabı
+        prof_s, prof_r, prof_q = self._broker_profitability(
+            data, ni_ttm, equity_check, ta_check, flags
+        )
+        cap_s,  cap_r,  cap_q  = self._broker_capital_strength(
+            data, equity_check, ta_check, flags
+        )
+        grow_s, grow_r, grow_q = self._broker_growth(data, flags)
+        stab_s, stab_r, stab_q = self._broker_stability(data, flags)
+        val_s,  val_r,  val_q  = self._broker_valuation(
+            data, sector_group, flags
+        )
+
+        # Profitability kalite eşiği
+        if prof_q < 0.60:
+            flags.append(
+                f"Broker modeli profitability kalitesi eşiğin altında "
+                f"(quality={prof_q:.2f} < 0.60)."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "profitability kalitesi yetersiz"
+            )
+
+        # Piotroski: not_applicable
+        flags.append(_BROKER_PIOTROSKI_NA_MSG)
+        piotr_na = PiotroskiResult(
+            score=None, normalized=None, calculated_criteria=0,
+            total_criteria=9, coverage=0.0, confidence="not_applicable",
+            applicability="not_applicable", missing_criteria=[], details={},
+        )
+
+        reasons = {
+            "profitability": (prof_s, prof_r, prof_q),
+            "balance_sheet": (cap_s,  cap_r,  cap_q),   # capital_strength
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r, grow_q),
+            "valuation":     (val_s,  val_r,  val_q),
+            "stability":     (stab_s, stab_r, stab_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _BROKER_WEIGHTS)
+
+        if quality < 0.55:
+            final_score = None
+            flags.append(
+                f"Broker finansal skoru hesaplanamadı: genel veri kalitesi "
+                f"yetersiz (quality={quality:.2f} < 0.55)."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        flags.append(
+            "Broker modeli V1: capital_strength skoru "
+            "finansal_subscores.balance_sheet alanında raporlanmaktadır."
+        )
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(cap_s),
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = None,
+        )
+
+        explanation = self._explain(subscores, piotr_na, sector_group)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr_na,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _broker_profitability(
+        self,
+        data:         dict,
+        ni_ttm:       Optional[float],
+        equity:       Optional[float],
+        total_assets: Optional[float],
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """ROE (TTM) + ROA (TTM) + Op.Margin proxy (3DF/3D).
+
+        3C kullanılmaz. Op.Margin = 3DF/3D, 1.0'a cap edilir.
+        """
+        try:
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+            df    = data["is_"]
+
+            # Gross profit proxy (3D) ve operating income (3DF)
+            if isyat:
+                gross_profit = _get_row(df, _GROSS_PROFIT_KEYS)
+                op_income    = _get_row(df, _OPERATING_PROFIT_KEYS)
+            elif yf:
+                gross_profit = _yf_ttm(df, YF_GROSS_PROFIT_KEYS)
+                op_income    = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+            else:
+                gross_profit = _get_row(df, _GROSS_PROFIT_KEYS)
+                op_income    = _get_row(df, _OPERATING_PROFIT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ROE = TTM NI / equity  [0, 0.30]
+            s = _normalize(_safe_div(ni_ttm, equity), 0.0, 0.30)
+            if s is not None: scored.append((s, 0.35))
+            else:             miss += 1
+
+            # ROA = TTM NI / total_assets  [0, 0.15]
+            s = _normalize(_safe_div(ni_ttm, total_assets), 0.0, 0.15)
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            # Op.Margin proxy = 3DF / 3D  (cap 1.0)
+            if op_income is not None and gross_profit and gross_profit != 0:
+                opm = op_income / gross_profit
+                if opm > 1.0:
+                    flags.append(
+                        f"Broker 3DF/3D={opm:.2f} > 1.0; "
+                        "other_income_material=True — 1.0'a cap edildi."
+                    )
+                    opm = 1.0
+                s = _normalize(opm, 0.0, 1.0)
+                if s is not None: scored.append((s, 0.35))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/broker] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _broker_capital_strength(
+        self,
+        data:         dict,
+        equity:       Optional[float],
+        total_assets: Optional[float],
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity/TA + FinDebt/Equity.
+
+        FinDebt = 2AA + 2BA (KV + UV Finansal Borçlar).
+        current_ratio kullanılmaz (aracı kurumlarda yanıltıcı).
+        """
+        try:
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+            df    = data["is_"]
+
+            if isyat:
+                fin_debt = _sum_key_latest(df, "Finansal Borçlar")
+            elif yf:
+                fin_debt = _yf_get(data.get("bs", df), YF_TOTAL_DEBT_KEYS)
+            else:
+                fin_debt = _sum_key_latest(df, "Finansal Borçlar")
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity / Total Assets  [0.05, 0.50]
+            s = _normalize(_safe_div(equity, total_assets), 0.05, 0.50)
+            if s is not None: scored.append((s, 0.55))
+            else:             miss += 1
+
+            # Financial Debt / Equity  [0.0, 4.0]  reverse
+            if fin_debt is not None and equity and equity > 0:
+                s = _normalize(fin_debt / equity, 0.0, 4.0, reverse=True)
+                if s is not None: scored.append((s, 0.45))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/broker] capital_strength: {e}")
+            return None, "missing", 0.0
+
+    def _broker_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """YoY büyüme: aynı çeyrek karşılaştırması (col 0 vs col 4).
+
+        NI YoY + Equity YoY + Gross Profit YoY.
+        3C kullanılmaz — gross profit proxy (3D) kullanılır.
+        Cap: ±500%.
+        """
+        try:
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            def cap_yoy(r: Optional[float]) -> Optional[float]:
+                if r is None:
+                    return None
+                return max(-5.0, min(5.0, r))
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            if isyat:
+                df = data["is_"]
+
+                def iy_yoy(keys: List[str]) -> Optional[float]:
+                    if df.shape[1] < 5:
+                        return None
+                    c = _get_row_period(df, keys, 0)
+                    p = _get_row_period(df, keys, 4)
+                    if c is None or p is None or p == 0:
+                        return None
+                    return cap_yoy((c - p) / abs(p))
+
+                ni_yoy = iy_yoy(_NET_PROFIT_KEYS)
+                eq_yoy = iy_yoy(_EQUITY_KEYS)
+                gp_yoy = iy_yoy(_GROSS_PROFIT_KEYS)   # 3D, NOT 3C
+
+            elif yf:
+                is_ = data["is_"]
+                bs  = data.get("bs", is_)
+                n_is = is_.shape[1]
+                n_bs = bs.shape[1]
+
+                def yf_at(df, keys, col):
+                    for k in keys:
+                        if k in df.index and col < df.shape[1]:
+                            v = df.loc[k].iloc[col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                ni_c = _yf_ttm(is_, YF_NET_INCOME_KEYS, 0)
+                ni_p = _yf_ttm(is_, YF_NET_INCOME_KEYS, 4) if n_is >= 8 else None
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                eq_p = yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                # gross profit proxy, NOT revenue
+                gp_c = _yf_ttm(is_, YF_GROSS_PROFIT_KEYS, 0)
+                gp_p = _yf_ttm(is_, YF_GROSS_PROFIT_KEYS, 4) if n_is >= 8 else None
+
+                def yoy(c, p):
+                    if c is None or p is None or p == 0:
+                        return None
+                    return cap_yoy((c - p) / abs(p))
+
+                ni_yoy = yoy(ni_c, ni_p)
+                eq_yoy = yoy(eq_c, eq_p)
+                gp_yoy = yoy(gp_c, gp_p)
+
+            else:
+                return None, "missing", 0.0
+
+            for rate, w in [(ni_yoy, 0.40), (eq_yoy, 0.35), (gp_yoy, 0.25)]:
+                s = _normalize(rate, *_T["growth"])
+                if s is not None: scored.append((s, w))
+                else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/broker] growth: {e}")
+            return None, "missing", 0.0
+
+    def _broker_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Son 4 çeyrekte pozitif NI sayısı + NI volatilitesi.
+
+        Tek çeyrek zarar sert ceza değil; sürekli zarar düşük skor.
+        """
+        try:
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                df = data["is_"]
+                ni_last4 = [
+                    _get_row_period(df, _NET_PROFIT_KEYS, i)
+                    for i in range(min(4, df.shape[1]))
+                ]
+                ni_last4 = [v for v in ni_last4 if v is not None]
+                ni_all = [
+                    _get_row_period(df, _NET_PROFIT_KEYS, i)
+                    for i in range(min(17, df.shape[1]))
+                ]
+                ni_all = [v for v in ni_all if v is not None]
+            elif yf:
+                is_ = data["is_"]
+                ni_last4 = []
+                for k in YF_NET_INCOME_KEYS:
+                    if k in is_.index:
+                        ni_last4 = [
+                            float(v) for v in is_.loc[k].iloc[:4]
+                            if pd.notna(v)
+                        ]
+                        break
+                ni_all = ni_last4
+            else:
+                return None, "missing", 0.0
+
+            if not ni_last4:
+                return None, "missing", 0.0
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Pozitif NI sayısı (0/4 → 0, 4/4 → 10)
+            pos_count = sum(1 for v in ni_last4 if v > 0)
+            scored.append(((pos_count / 4) * 10.0, 0.60))
+
+            # NI volatilitesi: CV ters normalize  [0, 2]
+            if len(ni_all) >= 3:
+                mean_abs = abs(float(np.mean(ni_all)))
+                if mean_abs > 0:
+                    cv = float(np.std(ni_all)) / mean_abs
+                    s  = _normalize(cv, 0.0, 2.0, reverse=True)
+                    if s is not None: scored.append((s, 0.40))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/broker] stability: {e}")
+            return None, "missing", 0.0
+
+    def _broker_valuation(
+        self,
+        data:         dict,
+        sector_group: str,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/E ve P/B.
+
+        Önce yfinance info.trailingPE / priceToBook.
+        Yoksa market_cap / TTM NI veya market_cap / equity.
+        """
+        try:
+            isyat = data.get("isyat", False)
+            df    = data["is_"]
+            bs    = data.get("bs", df)
+            info  = data.get("info") or {}
+
+            fk_high   = _FK_HIGH.get(sector_group, 30.0)
+            pddd_high = _PDDD_HIGH.get(sector_group, 4.0)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── P/E ────────────────────────────────────────────────────────
+            pe_added = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pe_added = True
+
+            if not pe_added:
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                ni_ttm_val = (
+                    _iy_ttm_sum(df, _NET_PROFIT_KEYS, 4)
+                    if isyat
+                    else _yf_ttm(df, YF_NET_INCOME_KEYS)
+                )
+                if market_cap and ni_ttm_val and ni_ttm_val > 0:
+                    pe = market_cap / ni_ttm_val
+                    if pe > 0:
+                        s = _normalize(pe, 0.0, fk_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pe_added = True
+                if not pe_added:
+                    miss += 1
+
+            # ── P/B ────────────────────────────────────────────────────────
+            pb_added = False
+            price_to_book = (
+                info.get("priceToBook") if isinstance(info, dict) else None
+            )
+            if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+                s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pb_added = True
+
+            if not pb_added:
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                equity_val = (
+                    _get_row(df, _EQUITY_KEYS)
+                    if isyat
+                    else _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                )
+                if market_cap and equity_val and equity_val > 0:
+                    pb = market_cap / equity_val
+                    if pb > 0:
+                        s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pb_added = True
+                if not pb_added:
+                    miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/broker] valuation: {e}")
+            return None, "missing", 0.0
 
     # ── Boş sonuç ──────────────────────────────────────────────────────────
 

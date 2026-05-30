@@ -539,10 +539,12 @@ def daily_job(tickers: list[str] | None = None):
                         _hd_fund.get("sector") or
                         ""
                     )
+                    _sector_profile = _hd_fund.get("sector_profile")
                     fund_res  = fund_engine.calculate(
                         ticker,
                         sektor=_sektor,
                         sector_group=_sector_group,
+                        sector_profile=_sector_profile,
                     )
                     _pio      = fund_res.piotroski
                     _fsub     = fund_res.subscores
