@@ -80,6 +80,15 @@ _SECTOR_MAP: Dict[str, str] = {
     "HOLDING":     "holding",
 }
 
+# Tam eşleşme gerektiren girdiler — alt string aramasına girmeden önce kontrol edilir.
+# "financial" tek başına eşleşmesin diye _SECTOR_MAP'tan ayrı tutulur.
+_SECTOR_EXACT: Dict[str, str] = {
+    "FINANCIAL SERVICES": "bank",
+    "BANKALAR":           "bank",
+    "BANKS":              "bank",
+    "BANK":               "bank",
+}
+
 # ── Alt skor ağırlıkları ──────────────────────────────────────────────────────
 _WEIGHTS: Dict[str, float] = {
     "profitability": 0.25,
@@ -160,6 +169,86 @@ _BANK_TOTAL_INCOME_KEYS = [
 ]
 
 
+# ── yfinance satır adı alias listeleri ───────────────────────────────────────
+# yfinance v0.2.x+ CamelCase format kullanır (boşluksuz)
+YF_REVENUE_KEYS = [
+    "TotalRevenue", "OperatingRevenue", "Revenue",
+    # eski yfinance sürümleri için fallback
+    "Total Revenue", "Operating Revenue",
+]
+YF_NET_INCOME_KEYS = [
+    "NetIncome",
+    "NetIncomeCommonStockholders",
+    "NetIncomeFromContinuingOperationNetMinorityInterest",
+    # eski format
+    "Net Income",
+    "Net Income Common Stockholders",
+    "Net Income From Continuing Operation Net Minority Interest",
+]
+YF_GROSS_PROFIT_KEYS = ["GrossProfit", "Gross Profit"]
+YF_OPERATING_INCOME_KEYS = [
+    "OperatingIncome", "TotalOperatingIncomeAsReported",
+    # eski format
+    "Operating Income", "Operating Income Or Loss",
+    "Total Operating Income As Reported",
+]
+YF_EBITDA_KEYS = ["EBITDA", "NormalizedEBITDA", "Normalized EBITDA"]
+YF_TOTAL_ASSETS_KEYS = ["TotalAssets", "Total Assets"]
+YF_TOTAL_EQUITY_KEYS = [
+    "CommonStockEquity",
+    "StockholdersEquity",
+    "TotalEquityGrossMinorityInterest",
+    # eski format
+    "Common Stock Equity",
+    "Stockholders Equity",
+    "Total Equity Gross Minority Interest",
+]
+YF_TOTAL_DEBT_KEYS = [
+    "TotalDebt", "NetDebt",
+    # eski format
+    "Total Debt", "Net Debt",
+]
+YF_CURRENT_ASSETS_KEYS = [
+    "CurrentAssets", "TotalCurrentAssets",
+    # eski format
+    "Current Assets", "Total Current Assets",
+]
+YF_CURRENT_LIABILITIES_KEYS = [
+    "CurrentLiabilities", "TotalCurrentLiabilities",
+    # eski format
+    "Current Liabilities", "Total Current Liabilities",
+    "Total Current Liabilities Payments Due Within One Year",
+]
+YF_INTEREST_EXPENSE_KEYS = [
+    "InterestExpense", "InterestExpenseNonOperating",
+    # eski format
+    "Interest Expense", "Interest Expense Non Operating",
+]
+YF_NET_INTEREST_INCOME_KEYS = ["NetInterestIncome", "Net Interest Income"]
+YF_OPERATING_CASHFLOW_KEYS = [
+    "OperatingCashFlow", "CashFlowFromContinuingOperatingActivities",
+    # eski format
+    "Operating Cash Flow", "Cash Flow From Continuing Operating Activities",
+]
+YF_FREE_CASHFLOW_KEYS = ["FreeCashFlow", "Free Cash Flow"]
+YF_SHARES_KEYS = [
+    "ShareIssued", "OrdinarySharesNumber",
+    # eski format
+    "Share Issued", "Ordinary Shares Number",
+]
+
+
+def _to_yfinance_symbol(ticker: str) -> str:
+    """THYAO → THYAO.IS   |   thyao.is → THYAO.IS"""
+    symbol = str(ticker or "").strip()
+    symbol = symbol.replace("ı", "I").replace("İ", "I").upper()
+    if symbol.endswith(".IS"):
+        return symbol
+    if "." in symbol:
+        symbol = symbol.split(".", 1)[0]
+    return f"{symbol}.IS"
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Dataclass'lar
 # ════════════════════════════════════════════════════════════════════════════
@@ -218,6 +307,60 @@ class FundamentalResult:
 # ════════════════════════════════════════════════════════════════════════════
 # Yardımcı fonksiyonlar
 # ════════════════════════════════════════════════════════════════════════════
+
+def _parse_col_period(col) -> Optional[Tuple[int, int, str]]:
+    """Kolon adından (year, month, label) tuple üretir.
+
+    Desteklenen formatlar: pd.Timestamp, "YYYY-MM-DD", "YYYY-MM-DD HH:MM:SS",
+    "YYYY/MM", "YYYY-MM", "YYYY".
+    """
+    try:
+        if hasattr(col, "year"):          # pd.Timestamp
+            y, m = int(col.year), int(col.month)
+        else:
+            s = str(col).strip()
+            m1 = re.match(r'^(\d{4})-(\d{2})-\d{2}', s)
+            if m1:
+                y, m = int(m1.group(1)), int(m1.group(2))
+            else:
+                m2 = re.match(r'^(\d{4})[/\-](\d{1,2})$', s)
+                if m2:
+                    y, m = int(m2.group(1)), int(m2.group(2))
+                else:
+                    m3 = re.match(r'^(\d{4})$', s)
+                    if not m3:
+                        return None
+                    y, m = int(m3.group(1)), 12
+    except Exception:
+        return None
+    label = f"{y} Yıllık" if m == 12 else f"{y} {m} Aylık"
+    return (y, m, label)
+
+
+def _extract_period_from_columns(df: Optional[pd.DataFrame]) -> Optional[str]:
+    """DataFrame kolonlarından en güncel dönemi tespit eder."""
+    if df is None or df.empty or len(df.columns) == 0:
+        return None
+    best: Optional[Tuple[int, int, str]] = None
+    for col in df.columns:
+        t = _parse_col_period(col)
+        if t and (best is None or (t[0], t[1]) > (best[0], best[1])):
+            best = t
+    return best[2] if best else None
+
+
+def _detect_latest_period(*dfs: Optional[pd.DataFrame]) -> Optional[str]:
+    """Birden fazla DataFrame'den en güncel dönemi tespit eder."""
+    best: Optional[Tuple[int, int, str]] = None
+    for df in dfs:
+        if df is None or df.empty:
+            continue
+        for col in df.columns:
+            t = _parse_col_period(col)
+            if t and (best is None or (t[0], t[1]) > (best[0], best[1])):
+                best = t
+    return best[2] if best else None
+
 
 def _normalize_tr(text: str) -> str:
     """Türkçe karakterleri ASCII'ye çevir, büyük harf ve strip."""
@@ -313,6 +456,34 @@ def _contains_forbidden(text: str, words: List[str] = _FORBIDDEN_WORDS) -> bool:
     return False
 
 
+def _yf_get(df: Optional[pd.DataFrame], keys: List[str]) -> Optional[float]:
+    """yfinance DataFrame'den ilk eşleşen satırın en güncel (col 0) değeri."""
+    if df is None or df.empty:
+        return None
+    for key in keys:
+        if key in df.index:
+            v = df.loc[key].iloc[0]
+            return float(v) if pd.notna(v) else None
+    return None
+
+
+def _yf_ttm(df: Optional[pd.DataFrame], keys: List[str],
+            start: int = 0, n: int = 4, min_q: int = 2) -> Optional[float]:
+    """Son n çeyreğin toplamı (TTM). NaN olanlar atlanır.
+    min_q: geçerli çeyrek sayısı bu değerin altındaysa None döner.
+    """
+    if df is None or df.empty:
+        return None
+    for key in keys:
+        if key in df.index:
+            row = df.loc[key]
+            end = min(start + n, len(row))
+            vals = [float(v) for v in row.iloc[start:end] if pd.notna(v)]
+            if len(vals) >= min_q:
+                return sum(vals)
+    return None
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # FundamentalEngine
 # ════════════════════════════════════════════════════════════════════════════
@@ -337,13 +508,13 @@ class FundamentalEngine:
         if data is None:
             return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
 
-        # Alt skorlar + nedenleri (None=calculated, "not_applicable", "missing")
-        prof_s,  prof_r  = self._compute_profitability(data, sector_group, flags)
-        bs_s,    bs_r    = self._compute_balance_sheet(data, sector_group, flags)
-        cf_s,    cf_r    = self._compute_cash_flow(data, sector_group, flags)
-        grow_s,  grow_r  = self._compute_growth(data, flags)
-        val_s,   val_r   = self._compute_valuation(data, sector_group, flags)
-        stab_s,  stab_r  = self._compute_stability(data, flags)
+        # Alt skorlar + (reason, metric_quality) — 3-tuple
+        prof_s,  prof_r,  prof_q  = self._compute_profitability(data, sector_group, flags)
+        bs_s,    bs_r,    bs_q    = self._compute_balance_sheet(data, sector_group, flags)
+        cf_s,    cf_r,    cf_q    = self._compute_cash_flow(data, sector_group, flags)
+        grow_s,  grow_r,  grow_q  = self._compute_growth(data, flags)
+        val_s,   val_r,   val_q   = self._compute_valuation(data, sector_group, flags)
+        stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags)
         piotr    = self._compute_piotroski(data, sector_group, flags)
 
         piotr_s = piotr.normalized if piotr else None
@@ -351,15 +522,21 @@ class FundamentalEngine:
             "not_applicable" if (piotr is None and sector_group in ("bank", "insurance"))
             else ("missing"  if piotr is None else None)
         )
+        if piotr_r == "not_applicable":
+            piotr_q = 1.0
+        elif piotr and piotr.normalized is not None:
+            piotr_q = round(piotr.calculated_criteria / 9, 2)
+        else:
+            piotr_q = 0.0
 
         reasons = {
-            "profitability": (prof_s,  prof_r),
-            "balance_sheet": (bs_s,    bs_r),
-            "cash_flow":     (cf_s,    cf_r),
-            "growth":        (grow_s,  grow_r),
-            "valuation":     (val_s,   val_r),
-            "stability":     (stab_s,  stab_r),
-            "piotroski":     (piotr_s, piotr_r),
+            "profitability": (prof_s,  prof_r,  prof_q),
+            "balance_sheet": (bs_s,    bs_r,    bs_q),
+            "cash_flow":     (cf_s,    cf_r,    cf_q),
+            "growth":        (grow_s,  grow_r,  grow_q),
+            "valuation":     (val_s,   val_r,   val_q),
+            "stability":     (stab_s,  stab_r,  stab_q),
+            "piotroski":     (piotr_s, piotr_r, piotr_q),
         }
         final_score, quality = self._weighted_average(reasons, _WEIGHTS)
 
@@ -403,7 +580,7 @@ class FundamentalEngine:
             financial_flags=flags,
             explanation=explanation,
             sector_group=sector_group,
-            data_source=data.get("data_source", "borsapy"),
+            data_source=data.get("data_source", "borsapy_yearly"),
             period=data.get("period"),
         )
 
@@ -413,8 +590,10 @@ class FundamentalEngine:
         if not sektor:
             return "unknown"
         s = _normalize_tr(sektor)
+        if s in _SECTOR_EXACT:
+            return _SECTOR_EXACT[s]
         for key, group in _SECTOR_MAP.items():
-            if _normalize_tr(key) in s or s in _normalize_tr(key):
+            if key in s or s in key:
                 return group
         return "industrial"
 
@@ -426,11 +605,105 @@ class FundamentalEngine:
         sector_group: str,
         flags:        List[str],
     ) -> Optional[dict]:
+        d = self._fetch_yfinance_quarterly(ticker, sector_group, flags)
+        if d is not None:
+            return d
         if sector_group == "bank":
             d = self._fetch_banking(ticker, flags)
             if d is not None:
                 return d
         return self._fetch_standard(ticker, flags)
+
+    def _fetch_yfinance_quarterly(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> Optional[dict]:
+        try:
+            import yfinance as yf
+            yf_symbol = _to_yfinance_symbol(ticker)
+            t = yf.Ticker(yf_symbol)
+
+            is_q = t.get_income_stmt(freq="quarterly")
+            bs_q = t.get_balance_sheet(freq="quarterly")
+            cf_q = t.get_cash_flow(freq="quarterly")
+
+            # Fallback to property attributes if method returns empty
+            if is_q is None or is_q.empty:
+                is_q = getattr(t, "quarterly_income_stmt", None)
+            if bs_q is None or bs_q.empty:
+                bs_q = getattr(t, "quarterly_balance_sheet", None)
+            if cf_q is None or cf_q.empty:
+                cf_q = getattr(t, "quarterly_cashflow", None)
+
+            if is_q is None or is_q.empty or bs_q is None or bs_q.empty:
+                flags.append(f"yfinance quarterly gelir tablosu veya bilanço boş döndü ({yf_symbol}).")
+                return None
+
+            if cf_q is not None and cf_q.empty:
+                cf_q = None
+
+            period = _detect_latest_period(is_q, bs_q, cf_q)
+            if period is None:
+                return None
+
+            last_price: Optional[float] = None
+            try:
+                v = t.fast_info.last_price
+                last_price = float(v) if v else None
+            except Exception:
+                pass
+
+            # Valuation için info alanları (trailingPE, priceToBook, marketCap)
+            yf_info: dict = {}
+            if last_price:
+                yf_info["last"] = last_price
+            try:
+                raw_info = t.info or {}
+                for k in ("trailingPE", "priceToBook", "marketCap"):
+                    v = raw_info.get(k)
+                    if v is not None:
+                        try:
+                            fv = float(v)
+                            if np.isfinite(fv) and fv > 0:
+                                yf_info[k] = fv
+                        except (TypeError, ValueError):
+                            pass
+            except Exception:
+                pass
+
+            # Growth fallback için yıllık tablolar
+            is_y: Optional[pd.DataFrame] = None
+            bs_y: Optional[pd.DataFrame] = None
+            try:
+                _is_y = t.get_income_stmt(freq="yearly")
+                if _is_y is not None and not _is_y.empty:
+                    is_y = _is_y
+            except Exception:
+                pass
+            try:
+                _bs_y = t.get_balance_sheet(freq="yearly")
+                if _bs_y is not None and not _bs_y.empty:
+                    bs_y = _bs_y
+            except Exception:
+                pass
+
+            flags.append(f"Veri kaynağı son finansal dönem olarak {period} verisini döndürdü.")
+            return {
+                "bs":          bs_q,
+                "is_":         is_q,
+                "cf":          cf_q,
+                "info":        yf_info if yf_info else None,
+                "is_y":        is_y,
+                "bs_y":        bs_y,
+                "period":      period,
+                "data_source": "yfinance_quarterly",
+                "yf":          True,
+            }
+        except Exception as e:
+            logger.debug(f"[fundamental] {ticker} yfinance quarterly fetch: {e}")
+            return None
 
     def _fetch_standard(self, ticker: str, flags: List[str]) -> Optional[dict]:
         try:
@@ -448,13 +721,17 @@ class FundamentalEngine:
                     cf = None
             except Exception as e:
                 logger.debug(f"[fundamental] {ticker} cashflow: {e}")
+            period = _detect_latest_period(is_, bs, cf)
+            if period is None:
+                period = str(is_.columns[0]) if not is_.empty else str(bs.columns[0])
+            flags.append(f"Veri kaynağı son finansal dönem olarak {period} verisini döndürdü.")
             return {
                 "bs":          bs,
                 "is_":         is_,
                 "cf":          cf,
                 "info":        info,
-                "period":      str(bs.columns[0]),
-                "data_source": "borsapy",
+                "period":      period,
+                "data_source": "borsapy_yearly",
             }
         except Exception as e:
             logger.warning(f"[fundamental] {ticker} standart fetch: {e}")
@@ -479,13 +756,17 @@ class FundamentalEngine:
             if bs is None or is_ is None:
                 return None
             info = getattr(t, "info", None)
+            period = _detect_latest_period(is_, bs)
+            if period is None:
+                period = str(bs.columns[0])
+            flags.append(f"Veri kaynağı son finansal dönem olarak {period} verisini döndürdü.")
             return {
                 "bs":          bs,
                 "is_":         is_,
                 "cf":          None,   # bankalar için mevcut değil
                 "info":        info,
-                "period":      str(bs.columns[0]),
-                "data_source": "borsapy_banking",
+                "period":      period,
+                "data_source": "borsapy_yearly",
             }
         except Exception as e:
             logger.warning(f"[fundamental] {ticker} banking fetch: {e}")
@@ -498,14 +779,63 @@ class FundamentalEngine:
         data:         dict,
         sector_group: str,
         flags:        List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         try:
+            if data.get("yf"):
+                return self._profitability_yfinance(data, sector_group, flags)
             if sector_group == "bank":
                 return self._profitability_bank(data)
             return self._profitability_standard(data)
         except Exception as e:
             logger.warning(f"[fundamental] profitability: {e}")
-            return None, "missing"
+            return None, "missing", 0.0
+
+    def _profitability_yfinance(
+        self, data: dict, sector_group: str, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str]]:
+        is_ = data["is_"]
+        bs  = data["bs"]
+
+        net_income   = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+        total_assets = _yf_get(bs,  YF_TOTAL_ASSETS_KEYS)
+        equity       = _yf_get(bs,  YF_TOTAL_EQUITY_KEYS)
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+
+        def add(v, th, w=1.0):
+            nonlocal miss
+            s = _normalize(v, *_T[th])
+            if s is not None:
+                scored.append((s, w))
+            else:
+                miss += 1
+
+        n_total: int
+        if sector_group == "bank":
+            n_total = 4
+            net_interest = _yf_ttm(is_, YF_NET_INTEREST_INCOME_KEYS)
+            total_income = _yf_ttm(is_, YF_REVENUE_KEYS) or net_interest
+            add(_safe_div(net_income, equity),         "roe", w=0.35)
+            add(_safe_div(net_income, total_assets),   "roa", w=0.25)
+            add(_safe_div(net_interest, total_assets), "nim", w=0.25)
+            add(_safe_div(net_income, total_income),   "nkm", w=0.15)
+        else:
+            n_total = 5
+            revenue      = _yf_ttm(is_, YF_REVENUE_KEYS)
+            gross_profit = _yf_ttm(is_, YF_GROSS_PROFIT_KEYS)
+            op_income    = _yf_ttm(is_, YF_OPERATING_INCOME_KEYS)
+            add(_safe_div(net_income, equity),       "roe",          w=0.30)
+            add(_safe_div(net_income, total_assets), "roa",          w=0.20)
+            add(_safe_div(net_income, revenue),      "nkm",          w=0.20)
+            add(_safe_div(op_income,  revenue),      "op_margin",    w=0.15)
+            add(_safe_div(gross_profit, revenue),    "gross_margin", w=0.15)
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / n_total, 2)
+        tw = sum(w for _, w in scored)
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     def _profitability_standard(
         self, data: dict
@@ -537,9 +867,10 @@ class FundamentalEngine:
         add(_safe_div(brut, satis),      "gross_margin", weight=0.15)
 
         if not scored:
-            return None, "missing"
+            return None, "missing", 0.0
+        mq = round(len(scored) / 5, 2)
         tw = sum(w for _, w in scored)
-        return round(sum(s * w for s, w in scored) / tw, 2), None
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     def _profitability_bank(
         self, data: dict
@@ -569,9 +900,10 @@ class FundamentalEngine:
         add(_safe_div(net_kar, top_gel),  "nkm", weight=0.15)
 
         if not scored:
-            return None, "missing"
+            return None, "missing", 0.0
+        mq = round(len(scored) / 4, 2)
         tw = sum(w for _, w in scored)
-        return round(sum(s * w for s, w in scored) / tw, 2), None
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     # ── Alt skor: Bilanço Sağlığı ───────────────────────────────────────────
 
@@ -580,10 +912,12 @@ class FundamentalEngine:
         data:         dict,
         sector_group: str,
         flags:        List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         if sector_group in ("bank", "insurance"):
-            return None, "not_applicable"
+            return None, "not_applicable", 1.0
         try:
+            if data.get("yf"):
+                return self._balance_sheet_yfinance(data, flags)
             bs, is_, cf = data["bs"], data["is_"], data.get("cf")
 
             ozkayn   = _get_row(bs,  _EQUITY_KEYS)
@@ -641,13 +975,70 @@ class FundamentalEngine:
                 miss += 1
 
             if not scored:
-                return None, "missing"
+                return None, "missing", 0.0
+            mq = round(len(scored) / 4, 2)
             tw = sum(w for _, w in scored)
-            return round(sum(s * w for s, w in scored) / tw, 2), None
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
         except Exception as e:
             logger.warning(f"[fundamental] balance_sheet: {e}")
-            return None, "missing"
+            return None, "missing", 0.0
+
+    def _balance_sheet_yfinance(
+        self, data: dict, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str]]:
+        is_ = data["is_"]
+        bs  = data["bs"]
+        cf  = data.get("cf")
+
+        equity      = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+        curr_assets = _yf_get(bs, YF_CURRENT_ASSETS_KEYS)
+        curr_liab   = _yf_get(bs, YF_CURRENT_LIABILITIES_KEYS)
+        total_debt  = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+        ebitda      = _yf_ttm(is_, YF_EBITDA_KEYS)
+        op_income   = _yf_ttm(is_, YF_OPERATING_INCOME_KEYS)
+        int_exp     = _yf_ttm(is_, YF_INTEREST_EXPENSE_KEYS)
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+
+        def add(v, th, reverse=False, w=1.0):
+            nonlocal miss
+            s = _normalize(v, *_T[th], reverse=reverse)
+            if s is not None:
+                scored.append((s, w))
+            else:
+                miss += 1
+
+        if total_debt is not None and equity and equity > 0:
+            add(total_debt / equity, "debt_equity", reverse=True, w=0.30)
+        else:
+            miss += 1
+
+        if curr_assets is not None and curr_liab and curr_liab > 0:
+            add(curr_assets / curr_liab, "current_ratio", w=0.25)
+        else:
+            miss += 1
+
+        if op_income is not None and int_exp is not None:
+            int_abs = abs(int_exp)
+            if int_abs > 0:
+                add(op_income / int_abs, "interest_cov", w=0.25)
+            else:
+                miss += 1
+        else:
+            miss += 1
+
+        if total_debt is not None and ebitda and ebitda > 0:
+            add(total_debt / ebitda, "nd_ebitda", reverse=True, w=0.20)
+        else:
+            miss += 1
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 4, 2)
+        tw = sum(w for _, w in scored)
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     # ── Alt skor: Nakit Akışı ───────────────────────────────────────────────
 
@@ -656,13 +1047,15 @@ class FundamentalEngine:
         data:         dict,
         sector_group: str,
         flags:        List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         if sector_group in ("bank", "insurance"):
-            return None, "not_applicable"
+            return None, "not_applicable", 1.0
         try:
+            if data.get("yf"):
+                return self._cash_flow_yfinance(data, flags)
             cf = data.get("cf")
             if cf is None:
-                return None, "missing"
+                return None, "missing", 0.0
 
             is_   = data["is_"]
             satis   = _get_row(is_, _REVENUE_KEYS)
@@ -706,13 +1099,65 @@ class FundamentalEngine:
                 miss += 1
 
             if not scored:
-                return None, "missing"
+                return None, "missing", 0.0
+            mq = round(len(scored) / 4, 2)
             tw = sum(w for _, w in scored)
-            return round(sum(s * w for s, w in scored) / tw, 2), None
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
         except Exception as e:
             logger.warning(f"[fundamental] cash_flow: {e}")
+            return None, "missing", 0.0
+
+    def _cash_flow_yfinance(
+        self, data: dict, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str]]:
+        is_ = data["is_"]
+        cf  = data.get("cf")
+
+        if cf is None:
             return None, "missing"
+
+        revenue    = _yf_ttm(is_, YF_REVENUE_KEYS)
+        net_income = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+        op_cf      = _yf_ttm(cf,  YF_OPERATING_CASHFLOW_KEYS)
+        fcf        = _yf_ttm(cf,  YF_FREE_CASHFLOW_KEYS)
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+
+        if op_cf is not None:
+            scored.append((10.0 if op_cf > 0 else 0.0, 0.35))
+        else:
+            miss += 1
+
+        if fcf is not None:
+            scored.append((10.0 if fcf > 0 else 0.0, 0.30))
+        else:
+            miss += 1
+
+        if fcf is not None and net_income and net_income > 0:
+            s = _normalize(_safe_div(fcf, net_income), *_T["fcf_nk"])
+            if s is not None:
+                scored.append((s, 0.20))
+            else:
+                miss += 1
+        else:
+            miss += 1
+
+        if fcf is not None and revenue and revenue > 0:
+            s = _normalize(_safe_div(fcf, revenue), *_T["fcf_margin"])
+            if s is not None:
+                scored.append((s, 0.15))
+            else:
+                miss += 1
+        else:
+            miss += 1
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 4, 2)
+        tw = sum(w for _, w in scored)
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     # ── Alt skor: Büyüme ────────────────────────────────────────────────────
 
@@ -720,12 +1165,14 @@ class FundamentalEngine:
         self,
         data:  dict,
         flags: List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         try:
+            if data.get("yf"):
+                return self._growth_yfinance(data, flags)
             bs, is_ = data["bs"], data["is_"]
             n = min(bs.shape[1], is_.shape[1])
             if n < 2:
-                return None, "missing"
+                return None, "missing", 0.0
 
             def series(df, keys):
                 return [_get_row_period(df, keys, i) for i in range(n)]
@@ -754,15 +1201,97 @@ class FundamentalEngine:
                     miss += 1
 
             if not scored:
-                return None, "missing"
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
             tw = sum(w for _, w in scored)
             score = sum(s * w for s, w in scored) / tw
-            score = min(score, 9.5)  # büyüme skoru tavanı
-            return round(score, 2), None
+            score = min(score, 9.5)
+            return round(score, 2), None, mq
 
         except Exception as e:
             logger.warning(f"[fundamental] growth: {e}")
-            return None, "missing"
+            return None, "missing", 0.0
+
+    def _growth_yfinance(
+        self, data: dict, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        is_  = data["is_"]
+        bs   = data["bs"]
+        is_y = data.get("is_y")
+        bs_y = data.get("bs_y")
+        n_is = is_.shape[1]
+        n_bs = bs.shape[1]
+
+        def ttm_at(df, keys, start):
+            return _yf_ttm(df, keys, start=start, n=4, min_q=2)
+
+        def yf_get_at(df, keys, col):
+            """Belirli kolon index'indeki değer."""
+            if df is None:
+                return None
+            for k in keys:
+                if k in df.index and col < df.shape[1]:
+                    v = df.loc[k].iloc[col]
+                    return float(v) if pd.notna(v) else None
+            return None
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+        used_yearly = False
+
+        def add_growth(curr, prior, w):
+            nonlocal miss
+            if curr is not None and prior is not None and prior != 0:
+                r = max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+                s = _normalize(r, *_T["growth"])
+                if s is not None:
+                    scored.append((s, w))
+                    return
+            miss += 1
+
+        # ── Revenue YoY ──────────────────────────────────────────────────────
+        rev_curr  = ttm_at(is_, YF_REVENUE_KEYS, 0)
+        rev_prior = ttm_at(is_, YF_REVENUE_KEYS, 4) if n_is >= 8 else None
+        if (rev_curr is None or rev_prior is None) and is_y is not None and is_y.shape[1] >= 2:
+            rc = _yf_get(is_y, YF_REVENUE_KEYS)
+            rp = yf_get_at(is_y, YF_REVENUE_KEYS, 1)
+            if rc is not None and rp is not None:
+                rev_curr, rev_prior, used_yearly = rc, rp, True
+        add_growth(rev_curr, rev_prior, 0.40)
+
+        # ── Net Income YoY ───────────────────────────────────────────────────
+        ni_curr  = ttm_at(is_, YF_NET_INCOME_KEYS, 0)
+        ni_prior = ttm_at(is_, YF_NET_INCOME_KEYS, 4) if n_is >= 8 else None
+        if (ni_curr is None or ni_prior is None) and is_y is not None and is_y.shape[1] >= 2:
+            nc = _yf_get(is_y, YF_NET_INCOME_KEYS)
+            np_ = yf_get_at(is_y, YF_NET_INCOME_KEYS, 1)
+            if nc is not None and np_ is not None:
+                ni_curr, ni_prior, used_yearly = nc, np_, True
+        add_growth(ni_curr, ni_prior, 0.40)
+
+        # ── Equity YoY ───────────────────────────────────────────────────────
+        eq_curr  = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+        eq_prior = yf_get_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+        if (eq_curr is None or eq_prior is None) and bs_y is not None and bs_y.shape[1] >= 2:
+            ec = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS)
+            ep = yf_get_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+            if eq_curr is None and ec is not None:
+                eq_curr, used_yearly = ec, True
+            if eq_prior is None and ep is not None:
+                eq_prior, used_yearly = ep, True
+        add_growth(eq_curr, eq_prior, 0.20)
+
+        if used_yearly:
+            flags.append(
+                "Growth skorunda çeyreklik veri yetersiz olduğu için "
+                "yıllık veri destekleyici olarak kullanıldı."
+            )
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 3, 2)
+        tw = sum(w for _, w in scored)
+        return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
 
     # ── Alt skor: Değerleme ─────────────────────────────────────────────────
 
@@ -771,8 +1300,10 @@ class FundamentalEngine:
         data:         dict,
         sector_group: str,
         flags:        List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         try:
+            if data.get("yf"):
+                return self._valuation_yfinance(data, sector_group, flags)
             bs, is_ = data["bs"], data["is_"]
             info    = data.get("info")
 
@@ -825,13 +1356,104 @@ class FundamentalEngine:
                 miss += 1
 
             if not scored:
-                return None, "missing"
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
             tw = sum(w for _, w in scored)
-            return round(sum(s * w for s, w in scored) / tw, 2), None
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
         except Exception as e:
             logger.warning(f"[fundamental] valuation: {e}")
-            return None, "missing"
+            return None, "missing", 0.0
+
+    def _valuation_yfinance(
+        self,
+        data:         dict,
+        sector_group: str,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        is_  = data["is_"]
+        bs   = data["bs"]
+        info = data.get("info") or {}
+
+        fk_high   = _FK_HIGH.get(sector_group, 30.0)
+        pddd_high = _PDDD_HIGH.get(sector_group, 4.0)
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+
+        # ── P/E (F/K) ────────────────────────────────────────────────────────
+        # Öncelik 1: info.trailingPE
+        trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+        pe_added = False
+        if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+            s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+            if s is not None:
+                scored.append((s, 0.50))
+                pe_added = True
+
+        # Öncelik 2 / 3: manuel hesap (market_cap / TTM NI veya price × shares)
+        if not pe_added:
+            net_income = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+            shares     = _yf_get(bs, YF_SHARES_KEYS)
+            last_price = info.get("last") if isinstance(info, dict) else None
+            market_cap = info.get("marketCap") if isinstance(info, dict) else None
+
+            pe: Optional[float] = None
+            if market_cap and net_income and net_income > 0:
+                pe = market_cap / net_income
+            elif last_price and shares and shares > 0 and net_income and net_income > 0:
+                eps = net_income / shares
+                if eps > 0:
+                    pe = last_price / eps
+
+            if pe and pe > 0:
+                s = _normalize(pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pe_added = True
+
+            if not pe_added:
+                miss += 1
+                if not last_price and not market_cap:
+                    flags.append("yfinance değerleme: fiyat / piyasa değeri alınamadı.")
+
+        # ── P/B (PD/DD) ───────────────────────────────────────────────────────
+        # Öncelik 1: info.priceToBook
+        price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+        pb_added = False
+        if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+            s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+            if s is not None:
+                scored.append((s, 0.50))
+                pb_added = True
+
+        # Öncelik 2 / 3: manuel hesap
+        if not pb_added:
+            equity     = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            shares     = _yf_get(bs, YF_SHARES_KEYS)
+            last_price = info.get("last") if isinstance(info, dict) else None
+            market_cap = info.get("marketCap") if isinstance(info, dict) else None
+
+            pb: Optional[float] = None
+            if market_cap and equity and equity > 0:
+                pb = market_cap / equity
+            elif last_price and shares and shares > 0 and equity and equity > 0:
+                pb = (last_price * shares) / equity
+
+            if pb and pb > 0:
+                s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pb_added = True
+
+            if not pb_added:
+                miss += 1
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 2, 2)
+        tw = sum(w for _, w in scored)
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     # ── Alt skor: İstikrar ──────────────────────────────────────────────────
 
@@ -839,29 +1461,29 @@ class FundamentalEngine:
         self,
         data:  dict,
         flags: List[str],
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         try:
+            if data.get("yf"):
+                return self._stability_yfinance(data, flags)
             bs, is_ = data["bs"], data["is_"]
             n = min(bs.shape[1], is_.shape[1])
 
             ozkayn_latest = _get_row(bs, _EQUITY_KEYS)
             if ozkayn_latest is not None and ozkayn_latest < 0:
                 flags.append("Negatif özkaynak tespit edildi.")
-                return 0.0, None
+                return 0.0, None, 1.0
 
             net_karlar = [_get_row_period(is_, _NET_PROFIT_KEYS, i) for i in range(n)]
             valid      = [k for k in net_karlar if k is not None]
             if not valid:
-                return None, "missing"
+                return None, "missing", 0.0
 
             scored: List[Tuple[float, float]] = []
             miss = 0
 
-            # Zarar yılı oranı (0 zarar=10, tümü zarar=0)
-            loss_ratio  = sum(1 for k in valid if k < 0) / len(valid)
+            loss_ratio = sum(1 for k in valid if k < 0) / len(valid)
             scored.append(((1.0 - loss_ratio) * 10.0, 0.50))
 
-            # Kar oynaklığı (CV)
             if len(valid) >= 2:
                 mean_abs = abs(float(np.mean(valid)))
                 if mean_abs > 0:
@@ -877,13 +1499,60 @@ class FundamentalEngine:
                 miss += 1
 
             if not scored:
-                return None, "missing"
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
             tw = sum(w for _, w in scored)
-            return round(sum(s * w for s, w in scored) / tw, 2), None
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
         except Exception as e:
             logger.warning(f"[fundamental] stability: {e}")
-            return None, "missing"
+            return None, "missing", 0.0
+
+    def _stability_yfinance(
+        self, data: dict, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        is_ = data["is_"]
+        bs  = data["bs"]
+
+        equity = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+        if equity is not None and equity < 0:
+            flags.append("Negatif özkaynak tespit edildi.")
+            return 0.0, None, 1.0
+
+        ni_vals: List[float] = []
+        for key in YF_NET_INCOME_KEYS:
+            if key in is_.index:
+                ni_vals = [float(v) for v in is_.loc[key] if pd.notna(v)]
+                break
+
+        if not ni_vals:
+            return None, "missing", 0.0
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+
+        loss_ratio = sum(1 for k in ni_vals if k < 0) / len(ni_vals)
+        scored.append(((1.0 - loss_ratio) * 10.0, 0.50))
+
+        if len(ni_vals) >= 3:
+            mean_abs = abs(float(np.mean(ni_vals)))
+            if mean_abs > 0:
+                cv = float(np.std(ni_vals)) / mean_abs
+                s = _normalize(cv, 0.0, 2.0, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                else:
+                    miss += 1
+            else:
+                miss += 1
+        else:
+            miss += 1
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 2, 2)
+        tw = sum(w for _, w in scored)
+        return round(sum(s * w for s, w in scored) / tw, 2), None, mq
 
     # ── Alt skor: Piotroski ─────────────────────────────────────────────────
 
@@ -897,6 +1566,8 @@ class FundamentalEngine:
             return None   # not_applicable
 
         try:
+            if data.get("yf"):
+                return self._piotroski_yfinance(data, flags)
             bs, is_, cf = data["bs"], data["is_"], data.get("cf")
             n_bs = bs.shape[1]
             n_is = is_.shape[1]
@@ -1028,39 +1699,152 @@ class FundamentalEngine:
             logger.warning(f"[fundamental] piotroski: {e}")
             return None
 
+    def _piotroski_yfinance(
+        self, data: dict, flags: List[str]
+    ) -> Optional[PiotroskiResult]:
+        is_ = data["is_"]
+        bs  = data["bs"]
+        cf  = data.get("cf")
+        n_is = is_.shape[1]
+        n_bs = bs.shape[1]
+
+        details: Dict[str, Optional[int]] = {}
+        p_score = 0
+        calc    = 0
+
+        def add(name: str, value: Optional[bool]) -> None:
+            nonlocal p_score, calc
+            if value is None:
+                details[name] = None
+                return
+            v = 1 if value else 0
+            details[name] = v
+            p_score += v
+            calc += 1
+
+        def bs_val(keys, col=0):
+            for k in keys:
+                if k in bs.index and col < len(bs.loc[k]):
+                    v = bs.loc[k].iloc[col]
+                    return float(v) if pd.notna(v) else None
+            return None
+
+        ni_ttm   = _yf_ttm(is_, YF_NET_INCOME_KEYS)
+        ocf_ttm  = _yf_ttm(cf, YF_OPERATING_CASHFLOW_KEYS) if cf is not None else None
+        assets0  = bs_val(YF_TOTAL_ASSETS_KEYS, 0)
+
+        add("f1_net_kar_pozitif", (ni_ttm > 0) if ni_ttm is not None else None)
+        add("f2_opcf_pozitif",    (ocf_ttm > 0) if ocf_ttm is not None else None)
+
+        if n_is >= 8 and assets0:
+            ni_prior = _yf_ttm(is_, YF_NET_INCOME_KEYS, start=4)
+            assets4  = bs_val(YF_TOTAL_ASSETS_KEYS, 4)
+            roa0 = _safe_div(ni_ttm,  assets0)
+            roa1 = _safe_div(ni_prior, assets4)
+            add("f3_roa_iyilesti",
+                (roa0 > roa1) if (roa0 is not None and roa1 is not None) else None)
+        else:
+            add("f3_roa_iyilesti", None)
+
+        add("f4_cf_gt_net",
+            (ocf_ttm > ni_ttm) if (ocf_ttm is not None and ni_ttm is not None) else None)
+
+        if n_bs >= 5:
+            debt0 = bs_val(YF_TOTAL_DEBT_KEYS, 0)
+            debt4 = bs_val(YF_TOTAL_DEBT_KEYS, 4)
+            a4    = bs_val(YF_TOTAL_ASSETS_KEYS, 4)
+            r0 = _safe_div(debt0, assets0)
+            r1 = _safe_div(debt4, a4)
+            add("f5_borc_azaldi",
+                (r0 < r1) if (r0 is not None and r1 is not None) else None)
+            ca0 = bs_val(YF_CURRENT_ASSETS_KEYS, 0)
+            cl0 = bs_val(YF_CURRENT_LIABILITIES_KEYS, 0)
+            ca4 = bs_val(YF_CURRENT_ASSETS_KEYS, 4)
+            cl4 = bs_val(YF_CURRENT_LIABILITIES_KEYS, 4)
+            cr0 = _safe_div(ca0, cl0)
+            cr1 = _safe_div(ca4, cl4)
+            add("f6_cari_oran_iyilesti",
+                (cr0 > cr1) if (cr0 is not None and cr1 is not None) else None)
+            sh0 = bs_val(YF_SHARES_KEYS, 0)
+            sh4 = bs_val(YF_SHARES_KEYS, 4)
+            add("f7_yeni_hisse_yok",
+                (sh0 <= sh4 * 1.01) if (sh0 is not None and sh4 is not None) else None)
+        else:
+            add("f5_borc_azaldi",       None)
+            add("f6_cari_oran_iyilesti", None)
+            add("f7_yeni_hisse_yok",    None)
+
+        if n_is >= 8:
+            gp0 = _yf_ttm(is_, YF_GROSS_PROFIT_KEYS, start=0)
+            sa0 = _yf_ttm(is_, YF_REVENUE_KEYS,       start=0)
+            gp1 = _yf_ttm(is_, YF_GROSS_PROFIT_KEYS, start=4)
+            sa1 = _yf_ttm(is_, YF_REVENUE_KEYS,       start=4)
+            bm0 = _safe_div(gp0, sa0)
+            bm1 = _safe_div(gp1, sa1)
+            add("f8_brut_marj_iyilesti",
+                (bm0 > bm1) if (bm0 is not None and bm1 is not None) else None)
+            at0 = _safe_div(sa0, assets0)
+            at1 = _safe_div(sa1, bs_val(YF_TOTAL_ASSETS_KEYS, 4))
+            add("f9_aktif_devir_iyilesti",
+                (at0 > at1) if (at0 is not None and at1 is not None) else None)
+        else:
+            add("f8_brut_marj_iyilesti",    None)
+            add("f9_aktif_devir_iyilesti",  None)
+
+        if calc < 5:
+            normalized = None
+            flags.append(
+                f"Piotroski (yfinance) hesaplanamadı: yeterli kriter yok ({calc}/9).")
+        else:
+            normalized = round(p_score / calc * 10, 2)
+            flags.append(
+                f"Piotroski {p_score}/9 kriterin {calc} tanesi hesaplanarak üretildi.")
+
+        return PiotroskiResult(
+            score=p_score,
+            normalized=normalized,
+            calculated_criteria=calc,
+            total_criteria=9,
+            details=details,
+        )
+
     # ── Ağırlıklı ortalama + kalite ────────────────────────────────────────
 
     def _weighted_average(
         self,
-        reasons: Dict[str, Tuple[Optional[float], Optional[str]]],
+        reasons: Dict[str, Tuple],
         weights: Dict[str, float],
     ) -> Tuple[Optional[float], float]:
         """
         Returns (weighted_score, quality).
 
-        quality = calculated_weight / (calculated_weight + missing_weight)
-        not_applicable → ağırlıktan çıkar, kaliteyi etkilemez.
-        missing        → kaliteyi düşürür.
+        Tuple formatı: (score, reason, metric_quality)
+          metric_quality = subscore içinde hesaplanan metrik oranı (0.0–1.0)
+          not_applicable → ağırlıktan çıkar, kaliteyi etkilemez.
+          missing        → metric_quality=0.0, kaliteyi düşürür.
         """
         wsum  = 0.0
-        wapp  = 0.0   # applicable ağırlık
-        wcalc = 0.0   # hesaplanan ağırlık
-        wmiss = 0.0   # eksik ağırlık
+        wapp  = 0.0   # applicable ağırlık toplamı
+
+        # quality = Σ(w * metric_q) / wapp
+        wcalc_q = 0.0
 
         for key, w in weights.items():
-            score, reason = reasons.get(key, (None, "missing"))
+            entry   = reasons.get(key, (None, "missing", 0.0))
+            score   = entry[0]
+            reason  = entry[1]
+            metric_q = entry[2] if len(entry) > 2 else (0.0 if score is None else 1.0)
+
             if reason == "not_applicable":
                 continue
             wapp += w
             if score is not None and reason is None:
-                wcalc += w
-                wsum  += score * w
-            else:
-                wmiss += w
+                wcalc_q += w * metric_q
+                wsum    += score * w
+            # missing → metric_q = 0.0 → wcalc_q unchanged
 
-        denom   = wcalc + wmiss
-        quality = round(wcalc / denom, 2) if denom > 0 else 0.0
-        if wapp == 0 or wcalc == 0:
+        quality = round(wcalc_q / wapp, 2) if wapp > 0 else 0.0
+        if wapp == 0 or wcalc_q == 0:
             return None, quality
 
         return round(wsum / wapp, 2), quality
