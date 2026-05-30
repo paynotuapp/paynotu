@@ -109,49 +109,85 @@ _NET_PROFIT_KEYS = [
     "Ana Ortaklık Payları",
     "SÜRDÜRÜLENFAALİYETLER DÖNEM KARI/ZARARI",
     "Dönem Net Kar/Zararı",
+    # İş Yatırım XI_29
+    "NET PROFIT AFTER TAXES",
+    "Profit (Loss)",
+    "Net Income",
 ]
 _REVENUE_KEYS = [
     "Satış Gelirleri",
     "HASILAT",
     "NET SATIŞLAR",
+    # İş Yatırım XI_29 — sadece gelir satırları, "Maliyeti" içerenler hariç
+    "Satışlar",
+    "Hasılat",
+    "Revenue",
+    "Net Revenues",
+    "Total Revenue",
+    "Net Sales",
 ]
 _GROSS_PROFIT_KEYS = [
     "BRÜT KAR (ZARAR)",
     "BRÜT KAR",
+    # İş Yatırım XI_29
+    "Ticari Faaliyetlerden Brüt Kar (Zarar)",
+    "Gross Profit",
 ]
 _OPERATING_PROFIT_KEYS = [
     "FAALİYET KARI (ZARARI)",
     "ESAS FAALİYET KARI",
+    # İş Yatırım EN
+    "Operating Income",
+    "Operating Profit",
 ]
 _TOTAL_ASSETS_KEYS = [
     "TOPLAM VARLIKLAR",
     "AKTİF TOPLAMI",
+    "Total Assets",
 ]
 _EQUITY_KEYS = [
     "Ana Ortaklığa Ait Özkaynaklar",
     "Özkaynaklar",
     "XVI. ÖZKAYNAKLAR",
+    # İş Yatırım EN
+    "Equity",
+    "Total Equity",
+    "Common Equity",
 ]
-_CURRENT_ASSETS_KEYS = ["Dönen Varlıklar"]
-_CURRENT_LIAB_KEYS   = ["Kısa Vadeli Yükümlülükler"]
-_CASH_KEYS           = ["Nakit ve Nakit Benzerleri"]
-_PAID_CAPITAL_KEYS   = ["Ödenmiş Sermaye", "16.1 Ödenmiş Sermaye"]
+_CURRENT_ASSETS_KEYS = ["Dönen Varlıklar", "Current Assets"]
+_CURRENT_LIAB_KEYS   = ["Kısa Vadeli Yükümlülükler", "Current Liabilities"]
+_CASH_KEYS           = ["Nakit ve Nakit Benzerleri", "Cash and Cash Equivalents"]
+_PAID_CAPITAL_KEYS   = ["Ödenmiş Sermaye", "16.1 Ödenmiş Sermaye", "Paid-in Capital"]
 _FIN_EXPENSE_KEYS    = [
     "(Esas Faaliyet Dışı) Finansal Giderler (-)",
     "Finansman Giderleri",
     "Finansman Gideri",
+    "Interest Expense",
+]
+_FIN_DEBT_KEYS = [
+    "Finansal Borçlar",
+    "Financial Liabilities",
+    "Borrowings",
 ]
 _AMORTIZATION_KEYS = [
     "Amortisman & İtfa Payları",
     "Amortisman Giderleri",
+    "Depreciation and Amortization",
 ]
 _OPERATING_CF_KEYS = [
     "İşletme Faaliyetlerinden Kaynaklanan Net Nakit",
     "İşletme Faaliyetleri Net Nakit",
+    # İş Yatırım EN
+    "Operating Activities",
+    "Net Cash From Operating Activities",
+    "Cash Flow From Operating Activities",
 ]
 _FCF_KEYS = [
     "Serbest Nakit Akımı",
     "Serbest Nakit Akışı",
+    # İş Yatırım
+    "Serbest Nakit Akım",
+    "Free Cash Flow",
 ]
 # Banka satır adları
 _BANK_TOTAL_ASSETS_KEYS = ["AKTİF TOPLAMI", "PASİF TOPLAMI"]
@@ -608,13 +644,34 @@ class FundamentalEngine:
         sector_group: str,
         flags:        List[str],
     ) -> Optional[dict]:
-        d = self._fetch_yfinance_quarterly(ticker, sector_group, flags)
-        if d is not None:
-            return d
+        # ── 1. Primary: İş Yatırım (unknown sektörde atla) ───────────────────
+        if sector_group != "unknown":
+            d = self._fetch_isyatirim(ticker, sector_group, flags)
+            if d is not None:
+                return d
+            flags.append(
+                "İş Yatırım finansal verisi alınamadı; fallback kaynak kullanıldı."
+            )
+
+        # ── 2. Fallback sırası sektöre göre ──────────────────────────────────
         if sector_group == "bank":
+            # Banka fallback: borsapy_banking → yfinance
             d = self._fetch_banking(ticker, flags)
             if d is not None:
                 return d
+            return self._fetch_yfinance_quarterly(ticker, sector_group, flags)
+
+        if sector_group == "insurance":
+            # Sigorta fallback: borsapy_standard → yfinance
+            d = self._fetch_standard(ticker, flags)
+            if d is not None:
+                return d
+            return self._fetch_yfinance_quarterly(ticker, sector_group, flags)
+
+        # Sanayi / GYO / Holding / unknown fallback: yfinance → borsapy
+        d = self._fetch_yfinance_quarterly(ticker, sector_group, flags)
+        if d is not None:
+            return d
         return self._fetch_standard(ticker, flags)
 
     def _fetch_yfinance_quarterly(
@@ -775,6 +832,145 @@ class FundamentalEngine:
             logger.warning(f"[fundamental] {ticker} banking fetch: {e}")
             return None
 
+    def _fetch_isyatirim(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> Optional[dict]:
+        """İş Yatırım finansal tabloları — primary kaynak adapter."""
+        try:
+            from isyatirimhisse import fetch_financials as _iy_fetch
+
+            # Sektöre göre financial_group: banka/sigorta → UFRS('2'), diğerleri → XI_29('1')
+            fg = "2" if sector_group in ("bank", "insurance") else "1"
+
+            df_raw = _iy_fetch(
+                symbols=[ticker],
+                start_year="2022",
+                end_year="2026",
+                exchange="TRY",
+                financial_group=fg,
+            )
+
+            if df_raw is None or df_raw.empty:
+                return None
+
+            # Sembol filtrele
+            sym_col = next(
+                (c for c in df_raw.columns if c.upper() == "SYMBOL"), None
+            )
+            df_sym = (
+                df_raw[df_raw[sym_col] == ticker].copy()
+                if sym_col else df_raw.copy()
+            )
+            if df_sym.empty:
+                return None
+
+            # Dönem kolonları: "2022/3", "2022/6", ...
+            period_cols = [
+                c for c in df_sym.columns
+                if re.match(r"^\d{4}/\d+$", str(c))
+            ]
+            if not period_cols:
+                return None
+
+            # Yeniden eskiye sırala (borsapy kolonları gibi newest-first)
+            period_cols_sorted = sorted(
+                period_cols,
+                key=lambda c: tuple(int(x) for x in str(c).split("/")),
+                reverse=True,
+            )
+
+            tr_col = next(
+                (c for c in df_sym.columns if "NAME_TR" in c.upper()), None
+            )
+            en_col = next(
+                (c for c in df_sym.columns if "NAME_EN" in c.upper()), None
+            )
+            if not tr_col:
+                return None
+
+            # TR isimleri → index
+            df_tr = (
+                df_sym[[tr_col] + period_cols_sorted]
+                .copy()
+                .set_index(tr_col)
+            )
+            df_tr.index = df_tr.index.fillna("").astype(str).str.strip()
+
+            # EN isimleri → ek satırlar (TR'de olmayan)
+            parts = [df_tr]
+            if en_col:
+                df_en = df_sym[[en_col] + period_cols_sorted].copy()
+                df_en = df_en[
+                    df_en[en_col].notna() &
+                    (df_en[en_col].astype(str).str.strip() != "") &
+                    (df_en[en_col].astype(str).str.strip() != "None")
+                ].copy()
+                if not df_en.empty:
+                    df_en = df_en.set_index(en_col)
+                    df_en.index = df_en.index.astype(str).str.strip()
+                    new_en = df_en[~df_en.index.isin(df_tr.index)]
+                    if not new_en.empty:
+                        parts.append(new_en)
+
+            df_combined = pd.concat(parts) if len(parts) > 1 else df_tr
+
+            # Sayısal dönüşüm — güvenli
+            for col in period_cols_sorted:
+                df_combined[col] = pd.to_numeric(
+                    df_combined[col], errors="coerce"
+                )
+
+            # En güncel dönemi tespit et
+            period = _detect_latest_period(df_combined)
+            if period is None and period_cols_sorted:
+                t = _parse_col_period(period_cols_sorted[0])
+                period = t[2] if t else str(period_cols_sorted[0])
+
+            n_periods = len(period_cols_sorted)
+            flags.append(
+                f"İş Yatırım finansal verisi kullanıldı. "
+                f"Son dönem: {period}  ({n_periods} çeyrek, group='{fg}')"
+            )
+
+            # Valuation için piyasa verisi (yfinance anlık, hata olursa boş)
+            yf_info: dict = {}
+            try:
+                import yfinance as yf
+                t_yf = yf.Ticker(_to_yfinance_symbol(ticker))
+                lp = getattr(t_yf.fast_info, "last_price", None)
+                if lp:
+                    yf_info["last"] = float(lp)
+                raw = t_yf.info or {}
+                for k in ("trailingPE", "priceToBook", "marketCap"):
+                    v = raw.get(k)
+                    if v is not None:
+                        try:
+                            fv = float(v)
+                            if np.isfinite(fv) and fv > 0:
+                                yf_info[k] = fv
+                        except (TypeError, ValueError):
+                            pass
+            except Exception:
+                pass
+
+            return {
+                "bs":          df_combined,
+                "is_":         df_combined,
+                "cf":          df_combined,   # CF satırları aynı df içinde
+                "info":        yf_info if yf_info else None,
+                "period":      period,
+                "data_source": "isyatirim_quarterly",
+                "isyat":       True,
+                "n_periods":   n_periods,
+            }
+
+        except Exception as e:
+            logger.warning(f"[fundamental] {ticker} isyatirim fetch: {e}")
+            return None
+
     # ── Alt skor: Karlılık ──────────────────────────────────────────────────
 
     def _compute_profitability(
@@ -929,7 +1125,12 @@ class FundamentalEngine:
             nakit    = _get_row(bs,  _CASH_KEYS)
             faaliyet = _get_row(is_, _OPERATING_PROFIT_KEYS)
             fin_gid  = _get_row(is_, _FIN_EXPENSE_KEYS)
-            fin_borc = _sum_key_latest(bs, "Finansal Borçlar")
+            # borsapy'de _sum_key_latest (KV+UV toplar); isyatirimhisse'de _get_row
+            fin_borc = (
+                _get_row(bs, _FIN_DEBT_KEYS)
+                if data.get("isyat")
+                else _sum_key_latest(bs, "Finansal Borçlar")
+            )
             amort    = _get_row(cf, _AMORTIZATION_KEYS) if cf is not None else None
 
             scored: List[Tuple[float, float]] = []
@@ -1172,6 +1373,8 @@ class FundamentalEngine:
         try:
             if data.get("yf"):
                 return self._growth_yfinance(data, flags)
+            if data.get("isyat"):
+                return self._growth_isyatirim(data, flags)
             bs, is_ = data["bs"], data["is_"]
             n = min(bs.shape[1], is_.shape[1])
             if n < 2:
@@ -1296,6 +1499,63 @@ class FundamentalEngine:
         tw = sum(w for _, w in scored)
         return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
 
+    def _growth_isyatirim(
+        self, data: dict, flags: List[str]
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """İş Yatırım çeyreklik verisiyle YoY büyüme (i vs i+4 = aynı çeyrek geçen yıl)."""
+        is_ = data["is_"]
+        bs  = data["bs"]
+        n   = is_.shape[1]   # genellikle 17
+
+        def get_at(df: pd.DataFrame, keys: List[str], col: int) -> Optional[float]:
+            if col >= df.shape[1]:
+                return None
+            idx = df.index.str.strip()
+            for key in keys:
+                matches = df[idx == key.strip()]
+                if not matches.empty:
+                    v = matches.iloc[0, col]
+                    return float(v) if pd.notna(v) else None
+            return None
+
+        def yoy(curr: Optional[float], prior: Optional[float]) -> Optional[float]:
+            if curr is None or prior is None or prior == 0:
+                return None
+            return max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+
+        rev_yoys: List[float] = []
+        ni_yoys:  List[float] = []
+        eq_yoys:  List[float] = []
+
+        for i in range(n - 4):
+            r = yoy(get_at(is_, _REVENUE_KEYS,    i), get_at(is_, _REVENUE_KEYS,    i + 4))
+            if r is not None:
+                rev_yoys.append(r)
+            r = yoy(get_at(is_, _NET_PROFIT_KEYS, i), get_at(is_, _NET_PROFIT_KEYS, i + 4))
+            if r is not None:
+                ni_yoys.append(r)
+            r = yoy(get_at(bs,  _EQUITY_KEYS,     i), get_at(bs,  _EQUITY_KEYS,     i + 4))
+            if r is not None:
+                eq_yoys.append(r)
+
+        def avg(lst: List[float]) -> Optional[float]:
+            return float(np.mean(lst)) if lst else None
+
+        scored: List[Tuple[float, float]] = []
+        miss = 0
+        for rate, w in [(avg(rev_yoys), 0.40), (avg(ni_yoys), 0.40), (avg(eq_yoys), 0.20)]:
+            s = _normalize(rate, *_T["growth"])
+            if s is not None:
+                scored.append((s, w))
+            else:
+                miss += 1
+
+        if not scored:
+            return None, "missing", 0.0
+        mq = round(len(scored) / 3, 2)
+        tw = sum(w for _, w in scored)
+        return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
     # ── Alt skor: Değerleme ─────────────────────────────────────────────────
 
     def _compute_valuation(
@@ -1305,7 +1565,7 @@ class FundamentalEngine:
         flags:        List[str],
     ) -> Tuple[Optional[float], Optional[str], float]:
         try:
-            if data.get("yf"):
+            if data.get("yf") or data.get("isyat"):
                 return self._valuation_yfinance(data, sector_group, flags)
             bs, is_ = data["bs"], data["is_"]
             info    = data.get("info")
