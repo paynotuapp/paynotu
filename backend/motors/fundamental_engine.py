@@ -883,7 +883,7 @@ class FundamentalEngine:
         prof_s,  prof_r,  prof_q  = self._compute_profitability(data, compute_sg, flags)
         bs_s,    bs_r,    bs_q    = self._compute_balance_sheet(data, compute_sg, flags)
         cf_s,    cf_r,    cf_q    = self._compute_cash_flow(data, compute_sg, flags)
-        grow_s,  grow_r,  grow_q  = self._compute_growth(data, flags)
+        grow_s,  grow_r,  grow_q  = self._compute_growth(data, flags, compute_sg)
         val_s,   val_r,   val_q   = self._compute_valuation(data, compute_sg, flags)
         stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags, compute_sg)
         piotr    = self._compute_piotroski(data, compute_sg, flags)
@@ -1709,14 +1709,15 @@ class FundamentalEngine:
 
     def _compute_growth(
         self,
-        data:  dict,
-        flags: List[str],
+        data:         dict,
+        flags:        List[str],
+        sector_group: str = "",
     ) -> Tuple[Optional[float], Optional[str], float]:
         try:
             if data.get("yf"):
                 return self._growth_yfinance(data, flags)
             if data.get("isyat"):
-                return self._growth_isyatirim(data, flags)
+                return self._growth_isyatirim(data, flags, sector_group)
             bs, is_ = data["bs"], data["is_"]
             n = min(bs.shape[1], is_.shape[1])
             if n < 2:
@@ -1842,12 +1843,23 @@ class FundamentalEngine:
         return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
 
     def _growth_isyatirim(
-        self, data: dict, flags: List[str]
+        self, data: dict, flags: List[str], sector_group: str = ""
     ) -> Tuple[Optional[float], Optional[str], float]:
-        """İş Yatırım çeyreklik verisiyle YoY büyüme (i vs i+4 = aynı çeyrek geçen yıl)."""
+        """İş Yatırım çeyreklik verisiyle YoY büyüme (i vs i+4 = aynı çeyrek geçen yıl).
+
+        Bank path: NI → _BANK_NET_PROFIT_KEYS, revenue → _BANK_TOTAL_INCOME_KEYS.
+        """
         is_ = data["is_"]
         bs  = data["bs"]
         n   = is_.shape[1]   # genellikle 17
+
+        # Banka için sektöre özel key listeleri
+        if sector_group == "bank":
+            ni_keys  = _BANK_NET_PROFIT_KEYS
+            rev_keys = _BANK_TOTAL_INCOME_KEYS
+        else:
+            ni_keys  = _NET_PROFIT_KEYS
+            rev_keys = _REVENUE_KEYS
 
         def get_at(df: pd.DataFrame, keys: List[str], col: int) -> Optional[float]:
             if col >= df.shape[1]:
@@ -1870,13 +1882,13 @@ class FundamentalEngine:
         eq_yoys:  List[float] = []
 
         for i in range(n - 4):
-            r = yoy(get_at(is_, _REVENUE_KEYS,    i), get_at(is_, _REVENUE_KEYS,    i + 4))
+            r = yoy(get_at(is_, rev_keys,      i), get_at(is_, rev_keys,      i + 4))
             if r is not None:
                 rev_yoys.append(r)
-            r = yoy(get_at(is_, _NET_PROFIT_KEYS, i), get_at(is_, _NET_PROFIT_KEYS, i + 4))
+            r = yoy(get_at(is_, ni_keys,       i), get_at(is_, ni_keys,       i + 4))
             if r is not None:
                 ni_yoys.append(r)
-            r = yoy(get_at(bs,  _EQUITY_KEYS,     i), get_at(bs,  _EQUITY_KEYS,     i + 4))
+            r = yoy(get_at(bs,  _EQUITY_KEYS,  i), get_at(bs,  _EQUITY_KEYS,  i + 4))
             if r is not None:
                 eq_yoys.append(r)
 
