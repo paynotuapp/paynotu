@@ -112,7 +112,6 @@ _CANONICAL_SECTOR_GROUPS: set = {
 # Henüz özel modeli olmayan gruplar → skor üretme, "Veri Yetersiz" döndür
 _UNSUPPORTED_GROUPS: set = {
     "financial_special",
-    "investment_trust",
 }
 
 # V1'de genel operasyonel (industrial) modelle hesaplanan genişletilmiş gruplar
@@ -214,6 +213,78 @@ _LENDING_PIOTROSKI_MSG = (
 )
 
 _LENDING_STALE_CUTOFF = pd.Timestamp("2025-11-30")
+
+# ── Investment Trust ağırlıkları ──────────────────────────────────────────────
+# profitability / cash_flow / piotroski → not_applicable (dışlanır)
+# balance_sheet = leverage, growth = nav_growth
+# wapp (not_applicable dışlandığında) = 0.15+0.30+0.35+0.20 = 1.00
+_IT_WEIGHTS: Dict[str, float] = {
+    "profitability":  0.25,   # not_applicable
+    "balance_sheet":  0.15,   # leverage
+    "cash_flow":      0.15,   # not_applicable
+    "growth":         0.30,   # nav_growth
+    "valuation":      0.35,   # P/B odaklı
+    "stability":      0.20,
+    "piotroski":      0.05,   # not_applicable
+}
+
+_IT_PIOTROSKI_NA_MSG = (
+    "Yatırım ortaklıkları için klasik Piotroski F-Score uygulanabilir değildir; "
+    "model NAV/özkaynak odaklı hesaplanmıştır."
+)
+
+# P/B skor parametreleri
+_IT_PB_DEEP_DISCOUNT = 0.3   # altında → floor skor + flag
+_IT_PB_DISCOUNT_CAP  = 0.5   # altında → skor 5.0'a cap (aşırı düşük P/B otomatik iyi sayılmaz)
+_IT_PB_PREMIUM_CEIL  = 2.5   # üstünde → skor 0 + flag
+
+# Investment trust kaynak seçim eşikleri
+_IT_ISYAT_MIN_YEAR      = 2023                        # isyatirim dönemi >= bu yılsa geçerli
+_IT_YF_PREFERRED_CUTOFF = pd.Timestamp("2025-12-01")  # yfinance bu tarih >= ise borsapy yerine tercih edilir
+
+
+def _it_period_year(data: Optional[dict]) -> int:
+    """Veri döneminin yılını döndür; bulunamazsa 0."""
+    if data is None:
+        return 0
+    period = data.get("period") or ""
+    m = re.match(r"^(\d{4})", str(period))
+    return int(m.group(1)) if m else 0
+
+
+def _it_latest_col_ym(data: Optional[dict]) -> Optional[Tuple[int, int]]:
+    """Veri setinin en güncel kolon (year, month) tuple'ını döndür."""
+    if data is None:
+        return None
+    for key in ("is_", "bs"):
+        df = data.get(key)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            continue
+        try:
+            for col in df.columns[:1]:
+                t = _parse_col_period(col)
+                if t:
+                    return (t[0], t[1])
+        except Exception:
+            pass
+    return None
+
+
+def _it_has_required(data: dict, yf: bool) -> bool:
+    """equity ve total_assets satırları mevcut mu?"""
+    try:
+        bs = data.get("bs", pd.DataFrame())
+        if yf:
+            return (
+                _yf_get(bs, YF_TOTAL_EQUITY_KEYS) is not None and
+                _yf_get(bs, YF_TOTAL_ASSETS_KEYS) is not None
+            )
+        return (
+            _get_row(bs, _EQUITY_KEYS) is not None and
+            _get_row(bs, _TOTAL_ASSETS_KEYS) is not None
+        )
+    except Exception:
+        return False
 
 
 def _is_lending_stale(data: dict) -> bool:
@@ -739,6 +810,10 @@ class FundamentalEngine:
             return self._calculate_lending_operational(
                 ticker, sg, sector_profile, flags
             )
+
+        # ── Investment Trust özel yolu ──────────────────────────────────────
+        if sg == "investment_trust":
+            return self._calculate_investment_trust(ticker, sg, flags)
 
         # ── Guard: henüz modeli olmayan gruplar ────────────────────────────
         if sg in _UNSUPPORTED_GROUPS:
@@ -3404,6 +3479,495 @@ class FundamentalEngine:
         except Exception as e:
             logger.warning(f"[fundamental/broker] valuation: {e}")
             return None, "missing", 0.0
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Investment Trust V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _it_yf_info(self, ticker: str) -> dict:
+        """yfinance info'dan priceToBook, marketCap, last_price çek."""
+        yf_info: dict = {}
+        try:
+            import yfinance as yf
+            t_yf = yf.Ticker(_to_yfinance_symbol(ticker))
+            lp   = getattr(t_yf.fast_info, "last_price", None)
+            if lp:
+                yf_info["last"] = float(lp)
+            raw = t_yf.info or {}
+            for k in ("priceToBook", "marketCap"):
+                v = raw.get(k)
+                if v is not None:
+                    try:
+                        fv = float(v)
+                        if np.isfinite(fv) and fv > 0:
+                            yf_info[k] = fv
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+        return yf_info
+
+    def _fetch_investment_trust(
+        self,
+        ticker: str,
+        flags:  List[str],
+    ) -> Optional[dict]:
+        """Kaynak önceliği:
+        1. isyatirim_quarterly — dönem >= 2023 VE zorunlu metrikler varsa
+        2. yfinance_quarterly  — dönem >= 2025-12-01 VE zorunlu metrikler varsa
+        3. borsapy_yearly      — fallback (flag eklenir)
+        """
+        # ── 1. İş Yatırım ─────────────────────────────────────────────────────
+        iy_flags: List[str] = []
+        iy_data = self._fetch_isyatirim(ticker, "investment_trust", iy_flags)
+        if iy_data is not None:
+            iy_year = _it_period_year(iy_data)
+            if iy_year >= _IT_ISYAT_MIN_YEAR:
+                if _it_has_required(iy_data, yf=False):
+                    flags.extend(iy_flags)
+                    # isyatirim kendi içinde yfinance info çekiyor; dict değilse güncelle
+                    if not isinstance(iy_data.get("info"), dict):
+                        iy_data = {**iy_data, "info": self._it_yf_info(ticker)}
+                    return iy_data
+                else:
+                    flags.append(
+                        "İş Yatırım yatırım ortaklığı verisi zorunlu metrikleri eksik "
+                        "(equity/total_assets); atlandı."
+                    )
+            else:
+                flags.append(
+                    f"İş Yatırım yatırım ortaklığı verisi eski dönem döndürdüğü için "
+                    f"kullanılmadı (dönem: {iy_data.get('period')})."
+                )
+
+        # ── 2. yfinance_quarterly ─────────────────────────────────────────────
+        yf_flags: List[str] = []
+        yf_data = self._fetch_yfinance_quarterly(ticker, "investment_trust", yf_flags)
+
+        # ── 3. borsapy_yearly ─────────────────────────────────────────────────
+        bp_flags: List[str] = []
+        bp_data = self._fetch_standard(ticker, bp_flags)
+
+        # yfinance tercihli mi? (dönem >= cutoff VE zorunlu metrikler)
+        yf_ym = _it_latest_col_ym(yf_data)
+        yf_ts = pd.Timestamp(f"{yf_ym[0]}-{yf_ym[1]:02d}-01") if yf_ym else None
+        yf_preferred = (
+            yf_data is not None and
+            yf_ts is not None and
+            yf_ts >= _IT_YF_PREFERRED_CUTOFF and
+            _it_has_required(yf_data, yf=True)
+        )
+
+        if yf_preferred:
+            flags.extend(yf_flags)
+            flags.append(
+                f"Yatırım ortaklığı skoru güncel yfinance quarterly verisiyle hesaplandı "
+                f"(dönem: {yf_data.get('period')})."
+            )
+            return yf_data
+
+        # borsapy fallback
+        if bp_data is not None:
+            flags.extend(bp_flags)
+            bp_year = _it_period_year(bp_data)
+            flags.append(
+                f"Yatırım ortaklığı skoru {bp_year} yıllık finansal veriyle hesaplanmıştır; "
+                "daha güncel geçerli çeyreklik veri bulunamadı."
+            )
+            return {**bp_data, "info": self._it_yf_info(ticker)}
+
+        # Son çare: yfinance (dönem eski de olsa)
+        if yf_data is not None:
+            flags.extend(yf_flags)
+            flags.append(
+                "Investment trust: borsapy veri alınamadı; yfinance_quarterly (stale) kullanıldı."
+            )
+            return yf_data
+
+        return None
+
+    def _calculate_investment_trust(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Investment Trust V1 modeli (MKYO/GSYO).
+
+        Primary: borsapy_yearly + yfinance valuation bilgisi.
+        Fallback: yfinance_quarterly.
+        isyatirim: atlanır.
+        Revenue/Satış Gelirleri: hiçbir hesapta kullanılmaz.
+        Piotroski: not_applicable.
+        """
+        data = self._fetch_investment_trust(ticker, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        yf  = data.get("yf", False)
+        bs  = data.get("bs", pd.DataFrame())
+        is_ = data.get("is_", pd.DataFrame())
+
+        # Zorunlu veri kontrolü
+        if yf:
+            equity_check = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            ta_check     = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+        else:
+            equity_check = _get_row(bs, _EQUITY_KEYS)
+            ta_check     = _get_row(bs, _TOTAL_ASSETS_KEYS)
+
+        if equity_check is None or ta_check is None:
+            flags.append(
+                "Investment trust modeli için zorunlu finansal satırlar eksik "
+                "(equity / total_assets); skor hesaplanamadı."
+            )
+            return self._empty_result(ticker, sector_group, flags, "equity/total_assets eksik")
+
+        # Stale veri uyarısı
+        period_str = data.get("period") or ""
+        if period_str:
+            m = re.match(r"^(\d{4})", period_str)
+            if m and int(m.group(1)) < 2023:
+                flags.append(
+                    "Finansal veri son dönemi görece eski görünüyor; "
+                    "skor sınırlı güncellikte veriyle hesaplanmıştır."
+                )
+
+        # Alt skor hesabı
+        val_s,  val_r,  val_q  = self._it_valuation(data, equity_check, flags)
+        grow_s, grow_r, grow_q = self._it_nav_growth(data, flags)
+        stab_s, stab_r, stab_q = self._it_stability(data, flags)
+        lev_s,  lev_r,  lev_q  = self._it_leverage(equity_check, ta_check, flags)
+
+        # Piotroski: not_applicable
+        flags.append(_IT_PIOTROSKI_NA_MSG)
+        piotr_na = PiotroskiResult(
+            score=None, normalized=None, calculated_criteria=0,
+            total_criteria=9, coverage=0.0, confidence="not_applicable",
+            applicability="not_applicable", missing_criteria=[], details={},
+        )
+
+        reasons = {
+            "profitability": (None,   "not_applicable", 1.0),
+            "balance_sheet": (lev_s,  lev_r,  lev_q),    # leverage
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r, grow_q),   # nav_growth
+            "valuation":     (val_s,  val_r,  val_q),
+            "stability":     (stab_s, stab_r, stab_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _IT_WEIGHTS)
+
+        if quality < 0.55:
+            final_score = None
+            flags.append(
+                f"Investment trust finansal skoru hesaplanamadı: genel veri kalitesi "
+                f"yetersiz (quality={quality:.2f} < 0.55)."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        flags.append(
+            "Investment trust modeli V1: leverage skoru "
+            "finansal_subscores.balance_sheet alanında raporlanmaktadır."
+        )
+
+        subscores = FundamentalSubscores(
+            profitability = None,
+            balance_sheet = _r2(lev_s),
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = None,
+        )
+
+        explanation = self._it_explain(subscores, val_s, grow_s)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr_na,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "borsapy_yearly"),
+            period=data.get("period"),
+        )
+
+    def _it_pb_score(self, pb: float, flags: List[str]) -> float:
+        """P/B bantlama — investment trust özel."""
+        if pb > _IT_PB_PREMIUM_CEIL:
+            flags.append(
+                "Piyasa değeri özkaynak/NAV seviyesinin belirgin üzerinde görünüyor; "
+                "valuation alt skoru sınırlayıcı etki oluşturdu."
+            )
+            return 0.0
+        if pb < _IT_PB_DEEP_DISCOUNT:
+            flags.append(
+                "Piyasa değeri ile özkaynak/NAV arasında belirgin iskonto görülüyor; "
+                "bu fark tek başına olumlu veya olumsuz yorumlanmamalıdır."
+            )
+            return 2.0
+        if pb < _IT_PB_DISCOUNT_CAP:
+            flags.append(
+                "Piyasa değeri ile özkaynak/NAV arasında belirgin iskonto görülüyor; "
+                "bu fark tek başına olumlu veya olumsuz yorumlanmamalıdır."
+            )
+            return 5.0
+        # 0.5 – 2.5: skor ters normalize  (0.5→10, 2.5→0)
+        s = _normalize(pb, 0.5, 2.5, reverse=True)
+        return s if s is not None else 5.0
+
+    def _it_valuation(
+        self,
+        data:   dict,
+        equity: float,
+        flags:  List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/B odaklı valuation. revenue kullanılmaz."""
+        try:
+            bs   = data.get("bs", pd.DataFrame())
+            info = data.get("info") or {}
+            yf   = data.get("yf", False)
+
+            pb: Optional[float] = None
+
+            if isinstance(info, dict):
+                # 1. yfinance info.priceToBook
+                ptb = info.get("priceToBook")
+                if ptb is not None and np.isfinite(ptb) and ptb > 0:
+                    pb = float(ptb)
+
+                # 2. marketCap / equity
+                if pb is None:
+                    mc = info.get("marketCap")
+                    if mc and float(mc) > 0 and equity > 0:
+                        pb = float(mc) / equity
+
+                # 3. last_price × paid_capital / equity (borsapy path)
+                if pb is None and not yf:
+                    last_price = info.get("last")
+                    if last_price and float(last_price) > 0 and equity > 0:
+                        odenmis = _get_row(bs, _PAID_CAPITAL_KEYS)
+                        if odenmis and odenmis > 0:
+                            pb = (float(last_price) * odenmis) / equity
+
+            if pb is None or pb <= 0:
+                flags.append(
+                    "Investment trust valuation: P/B hesaplanamadı "
+                    "(fiyat/piyasa değeri verisi yok)."
+                )
+                return None, "missing", 0.0
+
+            score = self._it_pb_score(pb, flags)
+            return round(score, 2), None, 1.0
+
+        except Exception as e:
+            logger.warning(f"[fundamental/it] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _it_nav_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity YoY büyüme. Cap ±200%. Normalize: -20%→0, +50%→10."""
+        try:
+            yf   = data.get("yf", False)
+            bs   = data.get("bs", pd.DataFrame())
+            bs_y = data.get("bs_y")
+
+            equity_t:    Optional[float] = None
+            equity_prev: Optional[float] = None
+
+            if yf:
+                equity_t = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                n_bs     = bs.shape[1]
+                # t-4 quarterly deneme
+                if n_bs >= 5:
+                    for k in YF_TOTAL_EQUITY_KEYS:
+                        if k in bs.index:
+                            v = bs.loc[k].iloc[4]
+                            if pd.notna(v):
+                                equity_prev = float(v)
+                                break
+                # Yıllık fallback
+                if equity_prev is None and bs_y is not None and bs_y.shape[1] >= 2:
+                    for k in YF_TOTAL_EQUITY_KEYS:
+                        if k in bs_y.index:
+                            v = bs_y.loc[k].iloc[1]
+                            if pd.notna(v):
+                                equity_prev = float(v)
+                                break
+            elif data.get("isyat"):
+                # isyatirim quarterly: YoY = col 0 (son çeyrek) vs col 4 (1 yıl önce aynı çeyrek)
+                equity_t    = _get_row_period(bs, _EQUITY_KEYS, 0)
+                equity_prev = _get_row_period(bs, _EQUITY_KEYS, 4) if bs.shape[1] >= 5 else None
+            else:
+                # borsapy_yearly: col 0 = son yıl, col 1 = önceki yıl
+                equity_t    = _get_row_period(bs, _EQUITY_KEYS, 0)
+                equity_prev = _get_row_period(bs, _EQUITY_KEYS, 1)
+
+            if equity_t is None or equity_prev is None or equity_prev == 0:
+                return None, "missing", 0.0
+
+            nav_growth = max(-2.0, min(2.0, (equity_t - equity_prev) / abs(equity_prev)))
+            score      = _normalize(nav_growth, -0.20, 0.50)
+            if score is None:
+                return None, "missing", 0.0
+            return round(score, 2), None, 1.0
+
+        except Exception as e:
+            logger.warning(f"[fundamental/it] nav_growth: {e}")
+            return None, "missing", 0.0
+
+    def _it_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Son 4 yılda pozitif NI sayısı + NI volatilitesi. CV cap 3.0."""
+        try:
+            yf   = data.get("yf", False)
+            is_  = data.get("is_", pd.DataFrame())
+            is_y = data.get("is_y")
+
+            ni_series: List[float] = []
+
+            if yf:
+                # Yıllık veri tercih (GSYO için portföy değer hareketleri quarterly'de gürültülü)
+                if is_y is not None and not is_y.empty:
+                    for k in YF_NET_INCOME_KEYS:
+                        if k in is_y.index:
+                            ni_series = [float(v) for v in is_y.loc[k] if pd.notna(v)]
+                            break
+                if not ni_series:
+                    for k in YF_NET_INCOME_KEYS:
+                        if k in is_.index:
+                            ni_series = [float(v) for v in is_.loc[k] if pd.notna(v)]
+                            break
+            else:
+                # borsapy_yearly — en fazla 6 yıl al
+                n = min(6, is_.shape[1])
+                ni_series = [
+                    v for v in
+                    [_get_row_period(is_, _NET_PROFIT_KEYS, i) for i in range(n)]
+                    if v is not None
+                ]
+
+            if not ni_series:
+                return None, "missing", 0.0
+
+            ni_last4 = ni_series[:4]
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            n_periods = max(len(ni_last4), 1)
+            pos_count = sum(1 for v in ni_last4 if v > 0)
+            scored.append(((pos_count / n_periods) * 10.0, 0.60))
+
+            # Volatilite CV — GSYO/MKYO için geniş bant (3.0)
+            if len(ni_series) >= 2:
+                mean_abs = abs(float(np.mean(ni_series)))
+                if mean_abs > 0:
+                    cv = float(np.std(ni_series)) / mean_abs
+                    s  = _normalize(cv, 0.0, 3.0, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.40))
+                    else:
+                        miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/it] stability: {e}")
+            return None, "missing", 0.0
+
+    def _it_leverage(
+        self,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Debt/Assets = max(TA - Equity, 0) / TA. Reverse: 0.00→10, 0.20→0."""
+        try:
+            if total_assets <= 0:
+                return None, "missing", 0.0
+            implied_debt = max(total_assets - equity, 0.0)
+            debt_ratio   = implied_debt / total_assets
+            score = _normalize(debt_ratio, 0.0, 0.20, reverse=True)
+            if score is None:
+                return None, "missing", 0.0
+            return round(score, 2), None, 1.0
+        except Exception as e:
+            logger.warning(f"[fundamental/it] leverage: {e}")
+            return None, "missing", 0.0
+
+    def _it_explain(
+        self,
+        subscores: FundamentalSubscores,
+        val_score: Optional[float],
+        nav_score: Optional[float],
+    ) -> str:
+        """Investment trust açıklama metni."""
+        parts: List[str] = []
+
+        if val_score is not None:
+            if val_score >= 7.0:
+                parts.append(
+                    "Değerleme göstergeleri özkaynak/NAV bazında destekleyici seyretmektedir."
+                )
+            elif val_score >= 4.0:
+                parts.append(
+                    "Değerleme göstergeleri özkaynak/NAV bazında orta düzeyde seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Değerleme göstergeleri özkaynak/NAV bazında sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if nav_score is not None:
+            if nav_score >= 7.0:
+                parts.append("NAV/özkaynak büyüme göstergeleri güçlü seyretmektedir.")
+            elif nav_score >= 4.0:
+                parts.append("NAV/özkaynak büyüme göstergeleri orta düzeyde seyretmektedir.")
+            else:
+                parts.append("NAV/özkaynak büyüme göstergeleri sınırlı seyretmektedir.")
+
+        if subscores.stability is not None:
+            if subscores.stability >= 7.0:
+                parts.append("Net kar istikrarı güçlü seyretmektedir.")
+            elif subscores.stability >= 4.0:
+                parts.append("Net kar istikrarı orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Net kar istikrarı sınırlı seyretmektedir.")
+
+        if subscores.balance_sheet is not None:
+            if subscores.balance_sheet >= 7.0:
+                parts.append("Bilanço kaldıraç düzeyi düşük görünmektedir.")
+            elif subscores.balance_sheet >= 4.0:
+                parts.append("Bilanço kaldıraç düzeyi orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Bilanço kaldıraç düzeyi yüksek görünmektedir.")
+
+        if not parts:
+            return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
 
     # ── Boş sonuç ──────────────────────────────────────────────────────────
 
