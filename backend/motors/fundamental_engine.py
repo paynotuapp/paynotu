@@ -64,9 +64,11 @@ _T: Dict[str, Tuple[float, float]] = {
 
 # ── Sektöre göre F/K ve PD/DD tavan değerleri (normalize için) ───────────────
 _FK_HIGH  = {"bank": 20.0, "gyo": 20.0, "insurance": 20.0,
-             "holding": 25.0, "industrial": 30.0, "unknown": 30.0}
+             "holding": 25.0, "energy_utility": 20.0,
+             "industrial": 30.0, "unknown": 30.0}
 _PDDD_HIGH = {"bank": 2.0, "gyo": 1.5, "insurance": 2.0,
-              "holding": 2.5, "industrial": 4.0, "unknown": 4.0}
+              "holding": 2.5, "energy_utility": 2.5,
+              "industrial": 4.0, "unknown": 4.0}
 
 # ── Sektör eşleme tablosu (normalize edilmiş Türkçe → group) ─────────────────
 _SECTOR_MAP: Dict[str, str] = {
@@ -118,9 +120,9 @@ _UNSUPPORTED_GROUPS: set = {
 # Compute fonksiyonlarına "industrial" olarak iletilir; flag eklenir.
 _COMPUTE_GROUP_MAP: Dict[str, str] = {
     "technology_operational":  "industrial",
-    "energy_utility":          "industrial",
     "service_operational":     "industrial",
     "real_estate_operational": "industrial",
+    # energy_utility: özel _calculate_energy_utility() yolu kullanır
 }
 
 _V1_OPERATIONAL_FLAG = (
@@ -132,7 +134,7 @@ _V1_OPERATIONAL_FLAG = (
 _PIOTROSKI_NOT_APPLICABLE_GROUPS: set = {
     "bank", "insurance", "financial_special", "investment_trust", "unknown",
 }
-_PIOTROSKI_LIMITED_GROUPS: set = {"gyo", "holding"}
+_PIOTROSKI_LIMITED_GROUPS: set = {"gyo", "holding", "energy_utility"}
 
 _PIOTROSKI_NA_MSGS: Dict[str, str] = {
     "bank":              "Bankalar için klasik Piotroski F-Score uygulanabilir değildir.",
@@ -148,8 +150,9 @@ _PIOTROSKI_OPERATIONAL_FLAG = (
     "Piotroski skoru genel operasyonel finansal tablo mantığıyla hesaplanmıştır."
 )
 _PIOTROSKI_OPERATIONAL_GROUPS: set = {
-    "technology_operational", "energy_utility",
+    "technology_operational",
     "service_operational", "real_estate_operational",
+    # energy_utility: limited grubuna taşındı
 }
 
 
@@ -300,6 +303,20 @@ _HOLDING_WEIGHTS: Dict[str, float] = {
     "growth":        0.25,   # equity YoY dominant, revenue dışarıda
     "valuation":     0.25,   # P/B dominant (marketCap/equity öncelikli)
     "stability":     0.10,   # equity CV + NI pozitiflik
+    "piotroski":     0.05,   # limited, final skora dahil değil — dışlanır
+}
+
+# ── Energy Utility V1 ağırlıkları ────────────────────────────────────────────
+# cash_flow ve piotroski not_applicable → _weighted_average tarafından dışlanır.
+# Kalan 5: profitability(25) + balance_sheet/asset_strength(20)
+#          + growth(20) + stability(15) + valuation(20) = 1.00
+_EU_WEIGHTS: Dict[str, float] = {
+    "profitability": 0.25,   # op_margin + ROA + gross_margin (TTM bazlı)
+    "balance_sheet": 0.20,   # asset_strength bu alana map edilir
+    "cash_flow":     0.15,   # not_applicable — dışlanır
+    "growth":        0.20,   # OI YoY + revenue YoY + equity YoY
+    "stability":     0.15,   # OI pozitif oran + OI CV
+    "valuation":     0.20,   # P/B dominant
     "piotroski":     0.05,   # limited, final skora dahil değil — dışlanır
 }
 
@@ -888,6 +905,10 @@ class FundamentalEngine:
         # ── Holding özel yolu ───────────────────────────────────────────────
         if sg == "holding":
             return self._calculate_holding(ticker, sg, flags)
+
+        # ── Energy Utility özel yolu ────────────────────────────────────────
+        if sg == "energy_utility":
+            return self._calculate_energy_utility(ticker, sg, flags)
 
         # ── Insurance özel yolu ─────────────────────────────────────────────
         if sg == "insurance":
@@ -5704,6 +5725,673 @@ class FundamentalEngine:
                 parts.append(
                     "Özkaynak istikrarı veya net kâr sürekliliği sınırlı "
                     "seyretmektedir."
+                )
+
+        if not parts:
+            return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Energy Utility V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_energy_utility(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Energy Utility V1 modeli.
+
+        Primary: isyatirim_quarterly → borsapy_yearly (fallback).
+        yfinance: sadece valuation (P/B, P/E, marketCap).
+        cash_flow: not_applicable (yapısal negatif OCF / CapEx MISSING).
+        piotroski: limited, gösterilir ama final skora dahil değil.
+        Profitability: operating_income ağırlıklı (NI kur/finansman etkisini dışlamak için).
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        df    = data["is_"]
+        bs    = data["bs"]
+        isyat = data.get("isyat", False)
+        yf    = data.get("yf", False)
+
+        # ── Zorunlu metrikler ─────────────────────────────────────────────────
+        if isyat or not yf:
+            equity       = _get_row(bs, _EQUITY_KEYS)
+            total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+        else:
+            equity       = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            total_assets = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+
+        if equity is None or total_assets is None:
+            flags.append(
+                "Energy Utility modeli için zorunlu metrikler eksik "
+                "(equity / total_assets); skor hesaplanamadı."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "zorunlu metrikler eksik"
+            )
+
+        if equity < 0:
+            flags.append("Enerji: Negatif özkaynak tespit edildi.")
+            return self._empty_result(
+                ticker, sector_group, flags, "negatif özkaynak"
+            )
+
+        # ── Sabit flagler ────────────────────────────────────────────────────
+        flags.append(
+            "Energy Utility V1: nakit akışı yapısal negatif OCF / "
+            "CapEx eksikliği nedeniyle final skora dahil edilmedi."
+        )
+        flags.append(
+            "Energy Utility V1: karlılık metrikleri kur farkı ve "
+            "finansman gideri etkisini dışlamak için operating income "
+            "ağırlıklı hesaplanmıştır."
+        )
+
+        # ── OCF negatif flag ─────────────────────────────────────────────────
+        cf = data.get("cf")
+        if isyat:
+            _ocf = _get_row(df, _OPERATING_CF_KEYS)
+        elif yf:
+            _ocf = _yf_get(cf, YF_OPERATING_CASHFLOW_KEYS) if cf is not None else None
+        else:
+            _ocf = _get_row(cf, _OPERATING_CF_KEYS) if cf is not None else None
+        if _ocf is None and not yf:
+            _ocf = _get_row(df, _OPERATING_CF_KEYS)
+        if _ocf is not None and _ocf < 0:
+            flags.append(
+                "Enerji: Nakit akışı bu dönemde negatif; yatırım/inşaat "
+                "dönemi kaynaklı olabilir, tek başına operasyonel sorun "
+                "göstergesi değildir."
+            )
+
+        # ── Revenue büyük ölçekli dağıtım flag ──────────────────────────────
+        if isyat:
+            _rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+        elif yf:
+            _rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+        else:
+            _rev_ttm = _get_row(df, _REVENUE_KEYS)
+        if _rev_ttm is not None and _rev_ttm > 50e9:
+            flags.append(
+                "Enerji: Büyük ölçekli dağıtım/entegre yapısı olabilir; "
+                "mevsimsel revenue yüksektir."
+            )
+
+        # ── NI negatif dönem flag ─────────────────────────────────────────────
+        if isyat:
+            _neg_ni = sum(
+                1 for i in range(min(4, df.shape[1]))
+                if (_get_row_period(df, _NET_PROFIT_KEYS, i) or 0) < 0
+            )
+            if _neg_ni >= 2:
+                flags.append(
+                    "Enerji: Net kâr son dönemlerde negatif; finansman "
+                    "gideri veya kur farkı etkisi bulunabilir."
+                )
+
+        # ── Piotroski flag + hesap ────────────────────────────────────────────
+        flags.append(
+            "Enerji şirketlerinde Piotroski kriterleri sınırlı "
+            "yorumlanmalıdır; negatif nakit akışı ve gelir büyümesi "
+            "kriterleri güvenilir olmayabilir."
+        )
+        piotr = self._compute_piotroski(data, "energy_utility", flags)
+
+        # ── Alt skor hesabı ──────────────────────────────────────────────────
+        prof_s, prof_r, prof_q = self._eu_profitability(
+            data, equity, total_assets, flags
+        )
+        as_s,   as_r,   as_q   = self._eu_asset_strength(
+            data, equity, total_assets, flags
+        )
+        grow_s, grow_r, grow_q = self._eu_growth(data, flags)
+        stab_s, stab_r, stab_q = self._eu_stability(data, flags)
+        val_s,  val_r,  val_q  = self._eu_valuation(data, equity, flags)
+
+        reasons = {
+            "profitability": (prof_s, prof_r,  prof_q),
+            "balance_sheet": (as_s,   as_r,    as_q),
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r,  grow_q),
+            "stability":     (stab_s, stab_r,  stab_q),
+            "valuation":     (val_s,  val_r,   val_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _EU_WEIGHTS)
+
+        if quality < 0.35:
+            final_score = None
+            flags.append(
+                f"Energy Utility finansal skoru hesaplanamadı: veri "
+                f"kalitesi eşiğin altında (quality={quality:.2f} < 0.35)."
+            )
+        elif quality < 0.55:
+            flags.append("Energy Utility skoru sınırlı veriyle hesaplanmıştır.")
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(as_s),
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = _r2(piotr.normalized) if piotr else None,
+        )
+
+        explanation = self._eu_explain(subscores)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _eu_profitability(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Operating margin TTM (50%) + ROA TTM (30%) + Gross margin TTM (20%).
+        NKM, ROE kullanılmaz. Eşikler enerji sektörüne özel (dar).
+        """
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                oi_ttm  = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+                gp_ttm  = _iy_ttm_sum(df, _GROSS_PROFIT_KEYS, n=4, min_valid=2)
+                ni_ttm  = _iy_ttm_sum(df, _NET_PROFIT_KEYS, n=4, min_valid=2)
+            elif yf:
+                oi_ttm  = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+                gp_ttm  = _yf_ttm(df, YF_GROSS_PROFIT_KEYS)
+                ni_ttm  = _yf_ttm(df, YF_NET_INCOME_KEYS)
+            else:
+                oi_ttm  = _get_row(df, _OPERATING_PROFIT_KEYS)
+                rev_ttm = _get_row(df, _REVENUE_KEYS)
+                gp_ttm  = _get_row(df, _GROSS_PROFIT_KEYS)
+                ni_ttm  = _get_row(df, _NET_PROFIT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Operating margin [0.00, 0.20] — enerji tipik %5-15 arası
+            s = _normalize(_safe_div(oi_ttm, rev_ttm), 0.0, 0.20)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            # ROA [0.00, 0.10] — varlık yoğun sektör, ROA tabii düşük
+            s = _normalize(_safe_div(ni_ttm, total_assets), 0.0, 0.10)
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            # Gross margin [0.00, 0.30]
+            s = _normalize(_safe_div(gp_ttm, rev_ttm), 0.0, 0.30)
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/eu] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _eu_asset_strength(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity Ratio (50%) + Debt/Assets (30%) + ND/EBITDA proxy (20%).
+
+        EBITDA proxy = TTM OI + TTM DA (CapEx gerekmez).
+        Net debt = financial_debt - cash (cash yoksa gross debt kullan).
+        ND/EBITDA eşiği [0–8] enerji için toleranslı.
+        """
+        _EU_DA_YF_KEYS = [
+            "ReconciledDepreciation", "DepreciationAndAmortization",
+            "DepreciationAmortizationDepletion",
+            "Reconciled Depreciation", "Depreciation And Amortization",
+        ]
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            cf    = data.get("cf")
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                fin_debt = _get_row(bs, _FIN_DEBT_KEYS)
+                cash     = _get_row(bs, _CASH_KEYS)
+                oi_ttm   = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                da_ttm   = _iy_ttm_sum(df, _AMORTIZATION_KEYS, n=4, min_valid=2)
+            elif yf:
+                fin_debt = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+                cash     = _yf_get(bs, ["CashAndCashEquivalents",
+                                         "Cash And Cash Equivalents",
+                                         "CashCashEquivalentsAndShortTermInvestments"])
+                oi_ttm   = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                da_frame = cf if cf is not None else df
+                da_ttm   = _yf_ttm(da_frame, _EU_DA_YF_KEYS)
+            else:
+                fin_debt = _sum_key_latest(bs, "Finansal Borçlar")
+                cash     = _get_row(bs, _CASH_KEYS)
+                oi_ttm   = _get_row(df, _OPERATING_PROFIT_KEYS)
+                da_ttm   = _get_row(cf, _AMORTIZATION_KEYS) if cf is not None else None
+                if da_ttm is None:
+                    da_ttm = _get_row(df, _AMORTIZATION_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity Ratio [0.20, 0.80]
+            s = _normalize(_safe_div(equity, total_assets), 0.20, 0.80)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            # Debt / Assets [0.00, 0.50] reverse
+            if fin_debt is not None and total_assets > 0:
+                s = _normalize(fin_debt / total_assets, 0.0, 0.50, reverse=True)
+                if s is not None: scored.append((s, 0.30))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            # ND / EBITDA proxy [0.00, 8.00] reverse
+            if (fin_debt is not None and oi_ttm is not None
+                    and da_ttm is not None):
+                ebitda_proxy = oi_ttm + da_ttm
+                if ebitda_proxy > 0:
+                    net_debt = fin_debt - (cash or 0.0)
+                    s = _normalize(net_debt / ebitda_proxy, 0.0, 8.0, reverse=True)
+                    if s is not None: scored.append((s, 0.20))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/eu] asset_strength: {e}")
+            return None, "missing", 0.0
+
+    def _eu_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI YoY (50%) + Revenue YoY (30%) + Equity YoY (20%).
+        Net income YoY kullanılmaz (kur/finansman etkisi).
+        YoY: aynı çeyrek karşılaştırması (col i vs col i+4).
+        """
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            def yoy(curr: Optional[float], prior: Optional[float]) -> Optional[float]:
+                if curr is None or prior is None or prior == 0:
+                    return None
+                return max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+
+            oi_yoys:  List[float] = []
+            rev_yoys: List[float] = []
+            eq_yoys:  List[float] = []
+
+            if isyat:
+                n = min(df.shape[1], bs.shape[1])
+
+                def _get_at(frame: pd.DataFrame, keys: List[str],
+                             col: int) -> Optional[float]:
+                    if col >= frame.shape[1]:
+                        return None
+                    idx = frame.index.str.strip()
+                    for k in keys:
+                        m = frame[idx == k.strip()]
+                        if not m.empty:
+                            v = m.iloc[0, col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                for i in range(n - 4):
+                    r = yoy(_get_at(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_at(df, _OPERATING_PROFIT_KEYS, i + 4))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_at(df, _REVENUE_KEYS, i),
+                            _get_at(df, _REVENUE_KEYS, i + 4))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_at(bs, _EQUITY_KEYS, i),
+                            _get_at(bs, _EQUITY_KEYS, i + 4))
+                    if r is not None: eq_yoys.append(r)
+
+            elif yf:
+                bs_y = data.get("bs_y")
+                is_y = data.get("is_y")
+                n_is = df.shape[1]
+                n_bs = bs.shape[1]
+
+                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
+                            col: int) -> Optional[float]:
+                    if frame is None:
+                        return None
+                    for k in keys:
+                        if k in frame.index and col < frame.shape[1]:
+                            v = frame.loc[k].iloc[col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
+                oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
+                if (oi_c is None or oi_p is None) and is_y is not None:
+                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                r = yoy(oi_c, oi_p)
+                if r is not None: oi_yoys.append(r)
+
+                rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
+                rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
+                if (rev_c is None or rev_p is None) and is_y is not None:
+                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                r = yoy(rev_c, rev_p)
+                if r is not None: rev_yoys.append(r)
+
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                if (eq_c is None or eq_p is None) and bs_y is not None:
+                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                r = yoy(eq_c, eq_p)
+                if r is not None: eq_yoys.append(r)
+
+            else:
+                n = min(bs.shape[1], df.shape[1])
+                for i in range(n - 1):
+                    r = yoy(_get_row_period(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_row_period(df, _OPERATING_PROFIT_KEYS, i + 1))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_row_period(df, _REVENUE_KEYS, i),
+                            _get_row_period(df, _REVENUE_KEYS, i + 1))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_row_period(bs, _EQUITY_KEYS, i),
+                            _get_row_period(bs, _EQUITY_KEYS, i + 1))
+                    if r is not None: eq_yoys.append(r)
+
+            def avg(lst: List[float]) -> Optional[float]:
+                return float(np.mean(lst)) if lst else None
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            s = _normalize(avg(oi_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            s = _normalize(avg(rev_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            s = _normalize(avg(eq_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/eu] growth: {e}")
+            return None, "missing", 0.0
+
+    def _eu_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI pozitif dönem oranı (50%) + OI CV (50%).
+        NI CV kullanılmaz (kur/finansman yapay volatilite üretiyor).
+        OI CV eşiği [0.0, 2.0] — mevsimsel enerji için geniş bant.
+        """
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            oi_vals: List[float] = []
+            if isyat:
+                for i in range(min(8, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+            elif yf:
+                for key in YF_OPERATING_INCOME_KEYS:
+                    if key in df.index:
+                        oi_vals = [float(v) for v in df.loc[key] if pd.notna(v)]
+                        break
+            else:
+                for i in range(min(6, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+
+            if not oi_vals:
+                return None, "missing", 0.0
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # OI pozitif dönem oranı
+            pos_ratio = sum(1 for v in oi_vals if v > 0) / len(oi_vals)
+            scored.append((pos_ratio * 10.0, 0.50))
+
+            # OI CV [0.0, 2.0] reverse
+            if len(oi_vals) >= 2:
+                mean_abs = abs(float(np.mean(oi_vals)))
+                if mean_abs > 0:
+                    cv = float(np.std(oi_vals)) / mean_abs
+                    s = _normalize(cv, 0.0, 2.0, reverse=True)
+                    if s is not None: scored.append((s, 0.50))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/eu] stability: {e}")
+            return None, "missing", 0.0
+
+    def _eu_valuation(
+        self,
+        data:   dict,
+        equity: float,
+        flags:  List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/B (70%) + P/E koşullu (30%).
+        P/E: sadece 0 < P/E < 20 (enerji için dar eşik).
+        P/B: marketCap/equity öncelikli; priceToBook < 10 fallback.
+        _PDDD_HIGH["energy_utility"] = 2.5
+        _FK_HIGH["energy_utility"]   = 20.0
+        """
+        try:
+            info      = data.get("info") or {}
+            fk_high   = _FK_HIGH.get("energy_utility", 20.0)
+            pddd_high = _PDDD_HIGH.get("energy_utility", 2.5)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── P/B (70%) — marketCap/equity öncelikli ────────────────────────
+            pb_added      = False
+            market_cap    = info.get("marketCap") if isinstance(info, dict) else None
+            price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+
+            if market_cap and equity > 0:
+                pb = market_cap / equity
+                if pb > 0:
+                    s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.70))
+                        pb_added = True
+
+            if not pb_added:
+                if (price_to_book and np.isfinite(price_to_book) and
+                        0 < price_to_book < 10):
+                    s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.70))
+                        pb_added = True
+
+            if not pb_added:
+                miss += 1
+
+            # ── P/E (30%) — sadece 0 < P/E < 20 ─────────────────────────────
+            pe_added    = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if (trailing_pe and np.isfinite(trailing_pe) and 0 < trailing_pe < 20):
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.30))
+                    pe_added = True
+
+            if not pe_added:
+                if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                    flags.append(
+                        "Enerji: P/E metriği güvenilir bulunmadığı için "
+                        "valuation P/B ağırlıklı hesaplandı."
+                    )
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/eu] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _eu_explain(
+        self,
+        subscores: FundamentalSubscores,
+    ) -> str:
+        """Energy Utility açıklama metni. Yatırım tavsiyesi içermez."""
+        parts: List[str] = []
+
+        if subscores.profitability is not None:
+            if subscores.profitability >= 7.0:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine göre destekleyici seyretmektedir."
+                )
+            elif subscores.profitability >= 4.0:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine yakın seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine göre sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if subscores.balance_sheet is not None:
+            if subscores.balance_sheet >= 7.0:
+                parts.append(
+                    "Sermaye yapısı ve borçluluk düzeyi güçlü "
+                    "seyretmektedir."
+                )
+            elif subscores.balance_sheet >= 4.0:
+                parts.append(
+                    "Sermaye yapısı ve borçluluk düzeyi orta düzeyde "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Sermaye yapısı veya borçluluk düzeyi sınırlayıcı "
+                    "etki oluşturmaktadır."
+                )
+
+        if subscores.growth is not None:
+            if subscores.growth >= 7.0:
+                parts.append(
+                    "Büyüme göstergeleri (faaliyet kârı/gelir/özkaynak) "
+                    "güçlü seyretmektedir."
+                )
+            elif subscores.growth >= 4.0:
+                parts.append("Büyüme göstergeleri orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Büyüme göstergeleri sınırlı seyretmektedir.")
+
+        if subscores.stability is not None:
+            if subscores.stability >= 7.0:
+                parts.append(
+                    "Faaliyet kârı istikrarı güçlü seyretmektedir."
+                )
+            elif subscores.stability >= 4.0:
+                parts.append("Faaliyet kârı istikrarı orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Faaliyet kârı istikrarı sınırlı seyretmektedir.")
+
+        if subscores.valuation is not None:
+            if subscores.valuation >= 7.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "destekleyici düzeydedir."
+                )
+            elif subscores.valuation >= 4.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine yakın "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "sınırlayıcı etki oluşturmaktadır."
                 )
 
         if not parts:
