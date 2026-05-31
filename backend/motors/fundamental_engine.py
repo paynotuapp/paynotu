@@ -275,6 +275,20 @@ _IT_PIOTROSKI_NA_MSG = (
     "model NAV/özkaynak odaklı hesaplanmıştır."
 )
 
+# ── GYO V1 ağırlıkları ────────────────────────────────────────────────────────
+# cash_flow ve piotroski not_applicable → _weighted_average tarafından dışlanır.
+# Kalan 5: profitability(25) + balance_sheet/asset_strength(20)
+#          + growth(20) + valuation(25) + stability(10) = 1.00
+_GYO_WEIGHTS: Dict[str, float] = {
+    "profitability": 0.25,   # ROE + ROA
+    "balance_sheet": 0.20,   # asset_strength bu alana map edilir
+    "cash_flow":     0.15,   # not_applicable — dışlanır
+    "growth":        0.20,   # equity YoY dominant, revenue dışarıda
+    "valuation":     0.25,   # P/B dominant
+    "stability":     0.10,   # equity CV + NI pozitiflik
+    "piotroski":     0.05,   # limited, final skora dahil değil — dışlanır
+}
+
 # P/B skor parametreleri
 _IT_PB_DEEP_DISCOUNT = 0.3   # altında → floor skor + flag
 _IT_PB_DISCOUNT_CAP  = 0.5   # altında → skor 5.0'a cap (aşırı düşük P/B otomatik iyi sayılmaz)
@@ -852,6 +866,10 @@ class FundamentalEngine:
             return self._calculate_lending_operational(
                 ticker, sg, sector_profile, flags
             )
+
+        # ── GYO özel yolu ──────────────────────────────────────────────────────
+        if sg == "gyo":
+            return self._calculate_gyo(ticker, sg, flags)
 
         # ── Insurance özel yolu ─────────────────────────────────────────────
         if sg == "insurance":
@@ -4459,6 +4477,600 @@ class FundamentalEngine:
                 parts.append("Net kar sürekliliği orta düzeyde seyretmektedir.")
             else:
                 parts.append("Net kar sürekliliği sınırlı seyretmektedir.")
+
+        if not parts:
+            return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # GYO V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_gyo(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """GYO V1 modeli (Gayrimenkul Yatırım Ortaklığı).
+
+        Primary: isyatirim_quarterly → borsapy_yearly (fallback).
+        yfinance: sadece valuation için (P/B, P/E, marketCap).
+        cash_flow: not_applicable (inşaat GYO yapısal negatif OCF).
+        piotroski: limited, gösterilir ama final skora dahil değil.
+        Revenue: hiçbir hesaplamada kullanılmaz.
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        bs    = data["bs"]
+        isyat = data.get("isyat", False)
+        yf    = data.get("yf", False)
+
+        # ── Zorunlu metrikler (equity + total_assets) ────────────────────────
+        if isyat or not yf:
+            equity       = _get_row(bs, _EQUITY_KEYS)
+            total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+        else:
+            equity       = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            total_assets = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+
+        if equity is None or total_assets is None:
+            flags.append(
+                "GYO modeli için zorunlu metrikler eksik "
+                "(equity / total_assets); skor hesaplanamadı."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "zorunlu metrikler eksik"
+            )
+
+        if equity < 0:
+            flags.append("GYO: Negatif özkaynak tespit edildi.")
+            return self._empty_result(
+                ticker, sector_group, flags, "negatif özkaynak"
+            )
+
+        # ── Sabit flagler ────────────────────────────────────────────────────
+        flags.append(
+            "GYO V1 modeli: nakit akışı GYO iş modeli gereği "
+            "final skora dahil edilmedi."
+        )
+        flags.append(
+            "GYO V1 modeli: karlılık metrikleri yatırım amaçlı gayrimenkul "
+            "yeniden değerleme etkisi içerebilir."
+        )
+
+        # ── Alt skor hesabı ──────────────────────────────────────────────────
+        prof_s, prof_r, prof_q = self._gyo_profitability(
+            data, equity, total_assets, flags
+        )
+        as_s,   as_r,   as_q   = self._gyo_asset_strength(
+            data, equity, total_assets, flags
+        )
+        grow_s, grow_r, grow_q = self._gyo_growth(data, flags)
+        val_s,  val_r,  val_q  = self._gyo_valuation(data, flags)
+        stab_s, stab_r, stab_q = self._gyo_stability(data, flags)
+
+        # ── Piotroski: limited, final skora dahil değil ──────────────────────
+        piotr = self._compute_piotroski(data, "gyo", flags)
+
+        reasons = {
+            "profitability": (prof_s, prof_r,  prof_q),
+            "balance_sheet": (as_s,   as_r,    as_q),   # asset_strength
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r,  grow_q),
+            "valuation":     (val_s,  val_r,   val_q),
+            "stability":     (stab_s, stab_r,  stab_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _GYO_WEIGHTS)
+
+        if quality < 0.35:
+            final_score = None
+            flags.append(
+                f"GYO finansal skoru hesaplanamadı: veri kalitesi eşiğin "
+                f"altında (quality={quality:.2f} < 0.35)."
+            )
+        elif quality < 0.55:
+            flags.append("GYO skoru sınırlı veriyle hesaplanmıştır.")
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(as_s),     # asset_strength
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = _r2(piotr.normalized) if piotr else None,
+        )
+
+        explanation = self._gyo_explain(subscores)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _gyo_profitability(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """ROE + ROA. TTM NI (isyatirim) / col-0 NI (borsapy).
+        Revenue, gross_margin, op_margin kullanılmaz.
+        """
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                ni = _iy_ttm_sum(df, _NET_PROFIT_KEYS, n=4, min_valid=2)
+                # Negatif çeyrek sayısını kontrol et
+                neg_count = sum(
+                    1 for i in range(min(4, df.shape[1]))
+                    if (_get_row_period(df, _NET_PROFIT_KEYS, i) or 0) < 0
+                )
+                if neg_count >= 2:
+                    flags.append(
+                        "GYO: Net kâr son dönemlerde negatif; "
+                        "yeniden değerleme etkisi bulunabilir."
+                    )
+            elif yf:
+                ni = _yf_ttm(df, YF_NET_INCOME_KEYS)
+            else:
+                ni = _get_row(df, _NET_PROFIT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ROE = NI / equity  [0.00, 0.30]
+            s = _normalize(_safe_div(ni, equity), 0.0, 0.30)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            # ROA = NI / total_assets  [0.00, 0.15]
+            s = _normalize(_safe_div(ni, total_assets), 0.0, 0.15)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/gyo] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _gyo_asset_strength(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity Ratio (60%) + Debt/Assets (40%).
+
+        Equity Ratio = equity / total_assets  [0.20 → 0, 0.80 → 10]
+        Debt / Assets = financial_debt / total_assets  [0.00 → 10, 0.50 → 0]  reverse
+        current_ratio, debt/ebitda, interest_coverage kullanılmaz.
+        """
+        try:
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                fin_debt = _get_row(bs, _FIN_DEBT_KEYS)
+            elif yf:
+                fin_debt = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+            else:
+                fin_debt = _sum_key_latest(bs, "Finansal Borçlar")
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity Ratio  [0.20 → 0, 0.80 → 10]
+            s = _normalize(_safe_div(equity, total_assets), 0.20, 0.80)
+            if s is not None: scored.append((s, 0.60))
+            else:             miss += 1
+
+            # Debt / Assets  [0.00 → 10, 0.50 → 0]  reverse
+            if fin_debt is not None and total_assets > 0:
+                s = _normalize(fin_debt / total_assets, 0.0, 0.50, reverse=True)
+                if s is not None: scored.append((s, 0.40))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/gyo] asset_strength: {e}")
+            return None, "missing", 0.0
+
+    def _gyo_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity YoY (60%) + Net Income YoY (40%).
+        Revenue kullanılmaz (konut proje teslim döngüsüne bağlı volatilite).
+        YoY: aynı çeyrek karşılaştırması (col i vs col i+4).
+        """
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            def yoy(curr: Optional[float], prior: Optional[float]) -> Optional[float]:
+                if curr is None or prior is None or prior == 0:
+                    return None
+                return max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+
+            eq_yoys: List[float] = []
+            ni_yoys: List[float] = []
+
+            if isyat:
+                n = min(df.shape[1], bs.shape[1])
+
+                def _get_at(frame: pd.DataFrame, keys: List[str], col: int) -> Optional[float]:
+                    if col >= frame.shape[1]:
+                        return None
+                    idx = frame.index.str.strip()
+                    for k in keys:
+                        m = frame[idx == k.strip()]
+                        if not m.empty:
+                            v = m.iloc[0, col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                for i in range(n - 4):
+                    r = yoy(_get_at(bs, _EQUITY_KEYS, i),
+                            _get_at(bs, _EQUITY_KEYS, i + 4))
+                    if r is not None:
+                        eq_yoys.append(r)
+                    r = yoy(_get_at(df, _NET_PROFIT_KEYS, i),
+                            _get_at(df, _NET_PROFIT_KEYS, i + 4))
+                    if r is not None:
+                        ni_yoys.append(r)
+
+            elif yf:
+                bs_y = data.get("bs_y")
+                is_y = data.get("is_y")
+                n_bs = bs.shape[1]
+                n_is = df.shape[1]
+
+                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
+                            col: int) -> Optional[float]:
+                    if frame is None:
+                        return None
+                    for k in keys:
+                        if k in frame.index and col < frame.shape[1]:
+                            v = frame.loc[k].iloc[col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                eq_c = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 0)
+                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                if (eq_c is None or eq_p is None) and bs_y is not None:
+                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                r = yoy(eq_c, eq_p)
+                if r is not None:
+                    eq_yoys.append(r)
+
+                ni_c = _yf_ttm(df, YF_NET_INCOME_KEYS, start=0)
+                ni_p = _yf_ttm(df, YF_NET_INCOME_KEYS, start=4) if n_is >= 8 else None
+                if (ni_c is None or ni_p is None) and is_y is not None:
+                    ni_c = _yf_at(is_y, YF_NET_INCOME_KEYS, 0)
+                    ni_p = _yf_at(is_y, YF_NET_INCOME_KEYS, 1)
+                r = yoy(ni_c, ni_p)
+                if r is not None:
+                    ni_yoys.append(r)
+
+            else:
+                # borsapy_yearly: col i+1 = geçen yıl
+                n = min(bs.shape[1], df.shape[1])
+                for i in range(n - 1):
+                    r = yoy(_get_row_period(bs, _EQUITY_KEYS, i),
+                            _get_row_period(bs, _EQUITY_KEYS, i + 1))
+                    if r is not None:
+                        eq_yoys.append(r)
+                    r = yoy(_get_row_period(df, _NET_PROFIT_KEYS, i),
+                            _get_row_period(df, _NET_PROFIT_KEYS, i + 1))
+                    if r is not None:
+                        ni_yoys.append(r)
+
+            def avg(lst: List[float]) -> Optional[float]:
+                return float(np.mean(lst)) if lst else None
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            s = _normalize(avg(eq_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.60))
+            else:             miss += 1
+
+            s = _normalize(avg(ni_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.40))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/gyo] growth: {e}")
+            return None, "missing", 0.0
+
+    def _gyo_valuation(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/B (70%) + P/E koşullu (30%).
+
+        P/B: GYO NAV proxy — _PDDD_HIGH["gyo"] = 1.5.
+        P/E: sadece 0 < P/E < 30 ise dahil edilir.
+        """
+        try:
+            info      = data.get("info") or {}
+            fk_high   = _FK_HIGH.get("gyo", 20.0)
+            pddd_high = _PDDD_HIGH.get("gyo", 1.5)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── P/B (70%) ─────────────────────────────────────────────────────
+            pb_added      = False
+            price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+            if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+                s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    if price_to_book < 0.15:
+                        flags.append(
+                            "GYO: P/B seviyesi düşük görünmektedir; bu durum "
+                            "tek başına olumlu veya olumsuz yorumlanmamalıdır."
+                        )
+                    scored.append((s, 0.70))
+                    pb_added = True
+
+            # P/B fallback: marketCap / equity
+            if not pb_added:
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                bs         = data["bs"]
+                isyat_f    = data.get("isyat", False)
+                yf_f       = data.get("yf", False)
+                eq = (_get_row(bs, _EQUITY_KEYS) if (isyat_f or not yf_f)
+                      else _yf_get(bs, YF_TOTAL_EQUITY_KEYS))
+                if market_cap and eq and eq > 0:
+                    pb = market_cap / eq
+                    if pb > 0:
+                        s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.70))
+                            pb_added = True
+                if not pb_added:
+                    miss += 1
+
+            # ── P/E (30%) — sadece 0 < P/E < 30 ─────────────────────────────
+            pe_added    = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if (trailing_pe and np.isfinite(trailing_pe) and 0 < trailing_pe < 30):
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.30))
+                    pe_added = True
+
+            if not pe_added:
+                if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                    flags.append(
+                        "GYO: P/E metriği güvenilir bulunmadığı için valuation "
+                        "P/B ağırlıklı hesaplandı."
+                    )
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/gyo] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _gyo_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity CV (60%) + NI pozitif oran (40%).
+
+        Equity CV: özkaynak istikrarı — GYO'da NI'dan daha güvenilir gösterge.
+        NI CV kullanılmaz (yeniden değerleme kaynaklı gürültü).
+        """
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── Equity CV ─────────────────────────────────────────────────────
+            eq_vals: List[float] = []
+            if isyat or not yf:
+                for i in range(min(8, bs.shape[1])):
+                    v = _get_row_period(bs, _EQUITY_KEYS, i)
+                    if v is not None:
+                        eq_vals.append(v)
+            else:
+                for key in YF_TOTAL_EQUITY_KEYS:
+                    if key in bs.index:
+                        eq_vals = [float(v) for v in bs.loc[key] if pd.notna(v)]
+                        break
+
+            if len(eq_vals) >= 2:
+                mean_abs = abs(float(np.mean(eq_vals)))
+                if mean_abs > 0:
+                    cv = float(np.std(eq_vals)) / mean_abs
+                    # CV eşiği: enflasyon ortamında özkaynak büyür → 1.5 geniş bant
+                    s = _normalize(cv, 0.0, 1.5, reverse=True)
+                    if s is not None: scored.append((s, 0.60))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            # ── NI pozitif oran ───────────────────────────────────────────────
+            ni_vals: List[float] = []
+            if isyat:
+                for i in range(min(8, df.shape[1])):
+                    v = _get_row_period(df, _NET_PROFIT_KEYS, i)
+                    if v is not None:
+                        ni_vals.append(v)
+            elif yf:
+                for key in YF_NET_INCOME_KEYS:
+                    if key in df.index:
+                        ni_vals = [float(v) for v in df.loc[key] if pd.notna(v)]
+                        break
+            else:
+                for i in range(min(6, df.shape[1])):
+                    v = _get_row_period(df, _NET_PROFIT_KEYS, i)
+                    if v is not None:
+                        ni_vals.append(v)
+
+            if ni_vals:
+                pos_ratio = sum(1 for v in ni_vals if v > 0) / len(ni_vals)
+                scored.append((pos_ratio * 10.0, 0.40))
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/gyo] stability: {e}")
+            return None, "missing", 0.0
+
+    def _gyo_explain(
+        self,
+        subscores: FundamentalSubscores,
+    ) -> str:
+        """GYO açıklama metni. Yatırım tavsiyesi içermez."""
+        parts: List[str] = []
+
+        if subscores.profitability is not None:
+            if subscores.profitability >= 7.0:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) sektör eşiklerine göre "
+                    "destekleyici seyretmektedir."
+                )
+            elif subscores.profitability >= 4.0:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) sektör eşiklerine yakın "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) sektör eşiklerine göre "
+                    "sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if subscores.balance_sheet is not None:
+            if subscores.balance_sheet >= 7.0:
+                parts.append(
+                    "Özkaynak yapısı ve borçluluk düzeyi güçlü "
+                    "seyretmektedir."
+                )
+            elif subscores.balance_sheet >= 4.0:
+                parts.append(
+                    "Özkaynak yapısı ve borçluluk düzeyi orta düzeyde "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Özkaynak yapısı veya borçluluk düzeyi sınırlayıcı etki "
+                    "oluşturmaktadır."
+                )
+
+        if subscores.growth is not None:
+            if subscores.growth >= 7.0:
+                parts.append(
+                    "Büyüme göstergeleri (özkaynak/net kâr) güçlü "
+                    "seyretmektedir."
+                )
+            elif subscores.growth >= 4.0:
+                parts.append("Büyüme göstergeleri orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Büyüme göstergeleri sınırlı seyretmektedir.")
+
+        if subscores.valuation is not None:
+            if subscores.valuation >= 7.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "destekleyici düzeydedir."
+                )
+            elif subscores.valuation >= 4.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine yakın "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if subscores.stability is not None:
+            if subscores.stability >= 7.0:
+                parts.append(
+                    "Özkaynak istikrarı ve net kâr sürekliliği güçlü "
+                    "seyretmektedir."
+                )
+            elif subscores.stability >= 4.0:
+                parts.append(
+                    "Özkaynak istikrarı ve net kâr sürekliliği orta düzeyde "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Özkaynak istikrarı veya net kâr sürekliliği sınırlı "
+                    "seyretmektedir."
+                )
 
         if not parts:
             return "Finansal tablo verisiyle değerlendirme yapıldı."
