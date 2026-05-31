@@ -885,7 +885,7 @@ class FundamentalEngine:
         cf_s,    cf_r,    cf_q    = self._compute_cash_flow(data, compute_sg, flags)
         grow_s,  grow_r,  grow_q  = self._compute_growth(data, flags)
         val_s,   val_r,   val_q   = self._compute_valuation(data, compute_sg, flags)
-        stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags)
+        stab_s,  stab_r,  stab_q  = self._compute_stability(data, flags, compute_sg)
         piotr    = self._compute_piotroski(data, compute_sg, flags)
 
         # Piotroski kalite mantığı: coverage → quality, applicability → reason
@@ -2064,8 +2064,9 @@ class FundamentalEngine:
 
     def _compute_stability(
         self,
-        data:  dict,
-        flags: List[str],
+        data:         dict,
+        flags:        List[str],
+        sector_group: str = "",
     ) -> Tuple[Optional[float], Optional[str], float]:
         try:
             if data.get("yf"):
@@ -2078,7 +2079,8 @@ class FundamentalEngine:
                 flags.append("Negatif özkaynak tespit edildi.")
                 return 0.0, None, 1.0
 
-            net_karlar = [_get_row_period(is_, _NET_PROFIT_KEYS, i) for i in range(n)]
+            ni_keys   = _BANK_NET_PROFIT_KEYS if sector_group == "bank" else _NET_PROFIT_KEYS
+            net_karlar = [_get_row_period(is_, ni_keys, i) for i in range(n)]
             valid      = [k for k in net_karlar if k is not None]
             if not valid:
                 return None, "missing", 0.0
