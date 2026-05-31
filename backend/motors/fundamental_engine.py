@@ -214,6 +214,48 @@ _LENDING_PIOTROSKI_MSG = (
 
 _LENDING_STALE_CUTOFF = pd.Timestamp("2025-11-30")
 
+# ── Insurance V1 ağırlıkları ──────────────────────────────────────────────────
+# cash_flow ve piotroski → not_applicable (dışlanır)
+# balance_sheet = technical_perf
+# wapp = 0.30+0.25+0.20+0.10+0.15 = 1.00
+_INS_WEIGHTS: Dict[str, float] = {
+    "profitability":  0.30,
+    "balance_sheet":  0.25,   # technical_perf bu alana map edilir
+    "cash_flow":      0.15,   # not_applicable
+    "growth":         0.20,
+    "valuation":      0.10,
+    "stability":      0.15,
+    "piotroski":      0.05,   # not_applicable
+}
+
+_INS_PIOTROSKI_NA_MSG = (
+    "Sigorta şirketleri için klasik Piotroski F-Score uygulanabilir değildir."
+)
+
+_INS_NET_PROFIT_KEYS: List[str] = [
+    "F-Dönem Net Karı",
+    "N- Dönem Net Karı veya Zararı",
+]
+_INS_TECHNICAL_INCOME_KEYS: List[str] = [
+    "A- Hayat Dışı Teknik Gelir",
+    "D- Hayat Teknik Gelir",
+    "G- Emeklilik Teknik Gelir",
+]
+_INS_TECHNICAL_BALANCE_KEYS: List[str] = [
+    "J- Genel Teknik Bölüm Dengesi",
+    "C- Teknik Bölüm Dengesi- Hayat Dışı",
+    "F- Teknik Bölüm Dengesi- Hayat",
+    "I- Teknik Bölüm Dengesi- Emeklilik",
+    "I - Teknik Bölüm Dengesi- Emeklilik",
+]
+_INS_PREMIUM_KEYS: List[str] = [
+    "1.1- Yazılan Primler (Reasürör Payı Düşülmüş Olarak)",
+    "1.1.1- Brüt Yazılan Primler (+)",
+]
+_INS_INVESTMENT_INCOME_KEYS: List[str] = [
+    "K- Yatırım Gelirleri",
+]
+
 # ── Investment Trust ağırlıkları ──────────────────────────────────────────────
 # profitability / cash_flow / piotroski → not_applicable (dışlanır)
 # balance_sheet = leverage, growth = nav_growth
@@ -810,6 +852,10 @@ class FundamentalEngine:
             return self._calculate_lending_operational(
                 ticker, sg, sector_profile, flags
             )
+
+        # ── Insurance özel yolu ─────────────────────────────────────────────
+        if sg == "insurance":
+            return self._calculate_insurance(ticker, sg, flags)
 
         # ── Investment Trust özel yolu ──────────────────────────────────────
         if sg == "investment_trust":
@@ -3964,6 +4010,441 @@ class FundamentalEngine:
                 parts.append("Bilanço kaldıraç düzeyi orta düzeyde seyretmektedir.")
             else:
                 parts.append("Bilanço kaldıraç düzeyi yüksek görünmektedir.")
+
+        if not parts:
+            return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Insurance V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _ins_annual_ni_col_idx(self, df: pd.DataFrame) -> int:
+        """isyatirim G2 sigorta verisi için en güncel FY (ay=12) kolon indeksi.
+
+        Sigorta tabloları kümülatif raporlanır; FY değeri ay=12 kolonundan alınır.
+        Yıllık kolon yoksa 0 (en güncel çeyrek) döner.
+        """
+        best_idx = 0
+        best_ym  = (0, 0)
+        for i, col in enumerate(df.columns):
+            t = _parse_col_period(col)
+            if t and t[1] == 12 and (t[0], t[1]) > best_ym:
+                best_ym  = (t[0], t[1])
+                best_idx = i
+        return best_idx
+
+    def _calculate_insurance(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Insurance V1 Modeli.
+
+        Kaynak: isyatirim_quarterly (group=2, UFRS sigorta teknik format).
+        Revenue / gross_margin / current_ratio / Piotroski kullanılmaz.
+        Teknik performans: J- Genel Teknik Bölüm Dengesi / toplam teknik gelir.
+        FY net kar: kümülatif tabloda ay=12 kolonu.
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        df = data["is_"]   # isyatirim: is_ = bs = cf = df_combined
+        bs = data["bs"]
+
+        # ── Zorunlu metrikler ────────────────────────────────────────────────
+        fy_idx       = self._ins_annual_ni_col_idx(df)
+        annual_ni    = _get_row_period(df, _INS_NET_PROFIT_KEYS, fy_idx)
+        equity       = _get_row(bs, _EQUITY_KEYS)       # "Total Equity"
+        total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS) # "AKTİF TOPLAMI"
+
+        if annual_ni is None or equity is None or total_assets is None:
+            flags.append(
+                "Sigorta modeli için zorunlu metrikler eksik "
+                "(net_income / equity / total_assets); skor hesaplanamadı."
+            )
+            return self._empty_result(ticker, sector_group, flags, "zorunlu metrikler eksik")
+
+        # ── Alt skorlar ──────────────────────────────────────────────────────
+        prof_s, prof_r, prof_q = self._ins_profitability(
+            data, annual_ni, equity, total_assets, flags
+        )
+        tech_s, tech_r, tech_q = self._ins_technical_perf(data, flags)
+        grow_s, grow_r, grow_q = self._ins_growth(data, flags)
+        stab_s, stab_r, stab_q = self._ins_stability(data, fy_idx, flags)
+        val_s,  val_r,  val_q  = self._ins_valuation(data, annual_ni, equity, flags)
+
+        # ── Piotroski: not_applicable ────────────────────────────────────────
+        flags.append(_INS_PIOTROSKI_NA_MSG)
+        piotr_na = PiotroskiResult(
+            score=None, normalized=None, calculated_criteria=0,
+            total_criteria=9, coverage=0.0, confidence="not_applicable",
+            applicability="not_applicable", missing_criteria=[], details={},
+        )
+
+        reasons = {
+            "profitability": (prof_s, prof_r, prof_q),
+            "balance_sheet": (tech_s, tech_r, tech_q),   # technical_perf
+            "cash_flow":     (None,   "not_applicable", 1.0),
+            "growth":        (grow_s, grow_r, grow_q),
+            "valuation":     (val_s,  val_r,  val_q),
+            "stability":     (stab_s, stab_r, stab_q),
+            "piotroski":     (None,   "not_applicable", 1.0),
+        }
+        final_score, quality = self._weighted_average(reasons, _INS_WEIGHTS)
+
+        if quality < 0.55:
+            final_score = None
+            flags.append(
+                f"Sigorta finansal skoru hesaplanamadı: genel veri kalitesi "
+                f"yetersiz (quality={quality:.2f} < 0.55)."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        flags.append(
+            "Sigorta modeli V1: teknik performans skoru "
+            "finansal_subscores.balance_sheet alanında raporlanmaktadır."
+        )
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(tech_s),
+            cash_flow     = None,
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = None,
+        )
+
+        explanation = self._ins_explain(subscores, tech_s)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr_na,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _ins_profitability(
+        self,
+        data:         dict,
+        annual_ni:    float,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """ROE (FY) + ROA (FY). revenue kullanılmaz."""
+        try:
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            s = _normalize(_safe_div(annual_ni, equity), 0.0, 0.30)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            s = _normalize(_safe_div(annual_ni, total_assets), 0.0, 0.15)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/ins] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _ins_technical_perf(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Teknik performans: teknik denge / |toplam teknik gelir|.
+
+        Önce J- Genel Teknik Bölüm Dengesi, yoksa C+F+I toplamı.
+        Normalize: -0.20 → 0, +0.20 → 10.
+        """
+        try:
+            df = data["is_"]
+
+            # Teknik denge — J- birleşik toplamı önce
+            tech_balance = _get_row(df, ["J- Genel Teknik Bölüm Dengesi"])
+            if tech_balance is None:
+                parts = [
+                    _get_row(df, ["C- Teknik Bölüm Dengesi- Hayat Dışı"]),
+                    _get_row(df, ["F- Teknik Bölüm Dengesi- Hayat"]),
+                    _get_row(df, ["I- Teknik Bölüm Dengesi- Emeklilik",
+                                   "I - Teknik Bölüm Dengesi- Emeklilik"]),
+                ]
+                valid = [v for v in parts if v is not None]
+                tech_balance = sum(valid) if valid else None
+
+            if tech_balance is None:
+                return None, "missing", 0.0
+
+            # Toplam teknik gelir: A + D + G
+            tech_income = 0.0
+            n_found = 0
+            for key in _INS_TECHNICAL_INCOME_KEYS:
+                v = _get_row(df, [key])
+                if v is not None:
+                    tech_income += v
+                    n_found += 1
+
+            if n_found == 0 or tech_income == 0:
+                return None, "missing", 0.0
+
+            ratio = tech_balance / abs(tech_income)
+            score = _normalize(ratio, -0.20, 0.20)
+            if score is None:
+                return None, "missing", 0.0
+            return round(score, 2), None, 1.0
+
+        except Exception as e:
+            logger.warning(f"[fundamental/ins] technical_perf: {e}")
+            return None, "missing", 0.0
+
+    def _ins_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """NI YoY + Equity YoY + Prim YoY. col 0 vs col 4 (aynı çeyrek). Cap ±200%."""
+        try:
+            df   = data["is_"]
+            bs   = data["bs"]
+            n_df = df.shape[1]
+            n_bs = bs.shape[1]
+
+            def yoy(curr, prev):
+                if curr is None or prev is None or prev == 0:
+                    return None
+                return max(-2.0, min(2.0, (curr - prev) / abs(prev)))
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Net Income YoY
+            ni_c = _get_row_period(df, _INS_NET_PROFIT_KEYS, 0)
+            ni_p = _get_row_period(df, _INS_NET_PROFIT_KEYS, 4) if n_df >= 5 else None
+            s = _normalize(yoy(ni_c, ni_p), -0.20, 0.50)
+            if s is not None: scored.append((s, 0.40))
+            else:             miss += 1
+
+            # Equity YoY
+            eq_c = _get_row_period(bs, _EQUITY_KEYS, 0)
+            eq_p = _get_row_period(bs, _EQUITY_KEYS, 4) if n_bs >= 5 else None
+            s = _normalize(yoy(eq_c, eq_p), -0.20, 0.50)
+            if s is not None: scored.append((s, 0.35))
+            else:             miss += 1
+
+            # Premium YoY
+            pr_c = _get_row_period(df, _INS_PREMIUM_KEYS, 0)
+            pr_p = _get_row_period(df, _INS_PREMIUM_KEYS, 4) if n_df >= 5 else None
+            s = _normalize(yoy(pr_c, pr_p), -0.20, 0.50)
+            if s is not None: scored.append((s, 0.25))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/ins] growth: {e}")
+            return None, "missing", 0.0
+
+    def _ins_stability(
+        self,
+        data:   dict,
+        fy_idx: int,
+        flags:  List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Son 4 FY'de pozitif NI sayısı + NI volatilitesi. CV cap 3.0."""
+        try:
+            df = data["is_"]
+
+            # Tüm FY (ay=12) kolon indekslerini bul
+            fy_indices: List[int] = []
+            for i, col in enumerate(df.columns):
+                t = _parse_col_period(col)
+                if t and t[1] == 12:
+                    fy_indices.append(i)
+            fy_indices.sort()   # DataFrame zaten newest-first → küçük index = yeni
+
+            ni_series: List[float] = []
+            for idx in fy_indices[:4]:
+                v = _get_row_period(df, _INS_NET_PROFIT_KEYS, idx)
+                if v is not None:
+                    ni_series.append(v)
+
+            # FY kolon yoksa son 4 çeyrekle fallback
+            if not ni_series:
+                for i in range(min(4, df.shape[1])):
+                    v = _get_row_period(df, _INS_NET_PROFIT_KEYS, i)
+                    if v is not None:
+                        ni_series.append(v)
+
+            if not ni_series:
+                return None, "missing", 0.0
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            pos_count = sum(1 for v in ni_series if v > 0)
+            scored.append(((pos_count / len(ni_series)) * 10.0, 0.60))
+
+            if len(ni_series) >= 2:
+                mean_abs = abs(float(np.mean(ni_series)))
+                if mean_abs > 0:
+                    cv = float(np.std(ni_series)) / mean_abs
+                    s  = _normalize(cv, 0.0, 3.0, reverse=True)
+                    if s is not None: scored.append((s, 0.40))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/ins] stability: {e}")
+            return None, "missing", 0.0
+
+    def _ins_valuation(
+        self,
+        data:      dict,
+        annual_ni: float,
+        equity:    float,
+        flags:     List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/E + P/B. yfinance info öncelikli, fallback marketCap hesabı."""
+        try:
+            info      = data.get("info") or {}
+            fk_high   = _FK_HIGH.get("insurance", 20.0)
+            pddd_high = _PDDD_HIGH.get("insurance", 2.0)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # P/E
+            pe_added    = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pe_added = True
+            if not pe_added:
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                if market_cap and annual_ni and annual_ni > 0:
+                    pe = market_cap / annual_ni
+                    if pe > 0:
+                        s = _normalize(pe, 0.0, fk_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pe_added = True
+                if not pe_added:
+                    miss += 1
+
+            # P/B
+            pb_added      = False
+            price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+            if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+                s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pb_added = True
+            if not pb_added:
+                market_cap = info.get("marketCap") if isinstance(info, dict) else None
+                if market_cap and equity and equity > 0:
+                    pb = market_cap / equity
+                    if pb > 0:
+                        s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                        if s is not None:
+                            scored.append((s, 0.50))
+                            pb_added = True
+                if not pb_added:
+                    miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/ins] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _ins_explain(
+        self,
+        subscores:  FundamentalSubscores,
+        tech_score: Optional[float],
+    ) -> str:
+        """Insurance açıklama metni."""
+        parts: List[str] = []
+
+        if subscores.profitability is not None:
+            if subscores.profitability >= 7.0:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) destekleyici seyretmektedir."
+                )
+            elif subscores.profitability >= 4.0:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) orta düzeyde seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Karlılık göstergeleri (ROE/ROA) sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if tech_score is not None:
+            if tech_score >= 7.0:
+                parts.append("Teknik bölüm dengesi güçlü seyretmektedir.")
+            elif tech_score >= 4.0:
+                parts.append("Teknik bölüm dengesi orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Teknik bölüm dengesi zayıf seyretmektedir.")
+
+        if subscores.growth is not None:
+            if subscores.growth >= 7.0:
+                parts.append(
+                    "Büyüme göstergeleri (net kar/özkaynak/prim) güçlü seyretmektedir."
+                )
+            elif subscores.growth >= 4.0:
+                parts.append("Büyüme göstergeleri orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Büyüme göstergeleri sınırlı seyretmektedir.")
+
+        if subscores.stability is not None:
+            if subscores.stability >= 7.0:
+                parts.append("Net kar sürekliliği güçlü görünmektedir.")
+            elif subscores.stability >= 4.0:
+                parts.append("Net kar sürekliliği orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Net kar sürekliliği sınırlı seyretmektedir.")
 
         if not parts:
             return "Finansal tablo verisiyle değerlendirme yapıldı."
