@@ -53,8 +53,8 @@ _T: Dict[str, Tuple[float, float]] = {
     "gross_margin":  (0.00,  0.50),
     "op_margin":     (0.00,  0.30),
     "nim":           (0.00,  0.08),   # Net Interest Margin (banka)
-    "current_ratio": (0.80,  2.50),
-    "debt_equity":   (0.00,  3.00),   # reverse=True
+    "current_ratio": (0.50,  2.50),
+    "debt_equity":   (0.00,  4.00),   # reverse=True
     "interest_cov":  (1.00, 10.00),
     "nd_ebitda":     (0.00,  6.00),   # reverse=True
     "fcf_nk":       (-0.50,  1.50),   # FCF / Net Kar
@@ -70,7 +70,7 @@ _FK_HIGH  = {"bank": 20.0, "gyo": 20.0, "insurance": 20.0,
 _PDDD_HIGH = {"bank": 2.0, "gyo": 1.5, "insurance": 2.0,
               "holding": 2.5, "energy_utility": 2.5,
               "technology_operational": 8.0,
-              "industrial": 4.0, "unknown": 4.0}
+              "industrial": 5.0, "unknown": 4.0}
 
 # ── Sektör eşleme tablosu (normalize edilmiş Türkçe → group) ─────────────────
 _SECTOR_MAP: Dict[str, str] = {
@@ -165,6 +165,13 @@ def _piotroski_confidence(calc: int) -> str:
     if calc >= 5:
         return "medium"
     return "insufficient"
+
+# ── Industrial Growth V1 hardening sabitleri ──────────────────────────────────
+# Türkiye enflasyon ortamında nominal büyüme aşırı skor üretmesin diye
+# industrial path için üst eşik ve cap genişletildi.
+# Global _T["growth"] ve 9.5 cap diğer modeller için değişmedi.
+_INDUSTRIAL_GROWTH_T   = (-0.20, 0.80)
+_INDUSTRIAL_GROWTH_CAP = 8.0
 
 # ── Alt skor ağırlıkları ──────────────────────────────────────────────────────
 _WEIGHTS: Dict[str, float] = {
@@ -1447,8 +1454,8 @@ class FundamentalEngine:
             add(_safe_div(net_income, equity),       "roe",          w=0.30)
             add(_safe_div(net_income, total_assets), "roa",          w=0.20)
             add(_safe_div(net_income, revenue),      "nkm",          w=0.20)
-            add(_safe_div(op_income,  revenue),      "op_margin",    w=0.15)
-            add(_safe_div(gross_profit, revenue),    "gross_margin", w=0.15)
+            add(_safe_div(op_income,  revenue),      "op_margin",    w=0.20)
+            add(_safe_div(gross_profit, revenue),    "gross_margin", w=0.10)
 
         if not scored:
             return None, "missing", 0.0
@@ -1482,8 +1489,8 @@ class FundamentalEngine:
         add(_safe_div(net_kar, ozkayn),  "roe",          weight=0.30)
         add(_safe_div(net_kar, toplam_v),"roa",          weight=0.20)
         add(_safe_div(net_kar, satis),   "nkm",          weight=0.20)
-        add(_safe_div(faaliyet, satis),  "op_margin",    weight=0.15)
-        add(_safe_div(brut, satis),      "gross_margin", weight=0.15)
+        add(_safe_div(faaliyet, satis),  "op_margin",    weight=0.20)
+        add(_safe_div(brut, satis),      "gross_margin", weight=0.10)
 
         if not scored:
             return None, "missing", 0.0
@@ -1793,13 +1800,16 @@ class FundamentalEngine:
     ) -> Tuple[Optional[float], Optional[str], float]:
         try:
             if data.get("yf"):
-                return self._growth_yfinance(data, flags)
+                return self._growth_yfinance(data, flags, sector_group)
             if data.get("isyat"):
                 return self._growth_isyatirim(data, flags, sector_group)
             bs, is_ = data["bs"], data["is_"]
             n = min(bs.shape[1], is_.shape[1])
             if n < 2:
                 return None, "missing", 0.0
+
+            grow_t   = _INDUSTRIAL_GROWTH_T   if sector_group == "industrial" else _T["growth"]
+            grow_cap = _INDUSTRIAL_GROWTH_CAP if sector_group == "industrial" else 9.5
 
             def series(df, keys):
                 return [_get_row_period(df, keys, i) for i in range(n)]
@@ -1821,7 +1831,7 @@ class FundamentalEngine:
             miss = 0
 
             for rate, weight in [(satis_rates, 0.40), (kar_rates, 0.40), (ozk_rates, 0.20)]:
-                s = _normalize(rate, *_T["growth"])
+                s = _normalize(rate, *grow_t)
                 if s is not None:
                     scored.append((s, weight))
                 else:
@@ -1832,7 +1842,7 @@ class FundamentalEngine:
             mq = round(len(scored) / 3, 2)
             tw = sum(w for _, w in scored)
             score = sum(s * w for s, w in scored) / tw
-            score = min(score, 9.5)
+            score = min(score, grow_cap)
             return round(score, 2), None, mq
 
         except Exception as e:
@@ -1840,7 +1850,7 @@ class FundamentalEngine:
             return None, "missing", 0.0
 
     def _growth_yfinance(
-        self, data: dict, flags: List[str]
+        self, data: dict, flags: List[str], sector_group: str = ""
     ) -> Tuple[Optional[float], Optional[str], float]:
         is_  = data["is_"]
         bs   = data["bs"]
@@ -1848,6 +1858,9 @@ class FundamentalEngine:
         bs_y = data.get("bs_y")
         n_is = is_.shape[1]
         n_bs = bs.shape[1]
+
+        grow_t   = _INDUSTRIAL_GROWTH_T   if sector_group == "industrial" else _T["growth"]
+        grow_cap = _INDUSTRIAL_GROWTH_CAP if sector_group == "industrial" else 9.5
 
         def ttm_at(df, keys, start):
             return _yf_ttm(df, keys, start=start, n=4, min_q=2)
@@ -1870,7 +1883,7 @@ class FundamentalEngine:
             nonlocal miss
             if curr is not None and prior is not None and prior != 0:
                 r = max(-1.0, min(5.0, (curr - prior) / abs(prior)))
-                s = _normalize(r, *_T["growth"])
+                s = _normalize(r, *grow_t)
                 if s is not None:
                     scored.append((s, w))
                     return
@@ -1918,7 +1931,7 @@ class FundamentalEngine:
             return None, "missing", 0.0
         mq = round(len(scored) / 3, 2)
         tw = sum(w for _, w in scored)
-        return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+        return round(min(sum(s * w for s, w in scored) / tw, grow_cap), 2), None, mq
 
     def _growth_isyatirim(
         self, data: dict, flags: List[str], sector_group: str = ""
@@ -1938,6 +1951,9 @@ class FundamentalEngine:
         else:
             ni_keys  = _NET_PROFIT_KEYS
             rev_keys = _REVENUE_KEYS
+
+        grow_t   = _INDUSTRIAL_GROWTH_T   if sector_group == "industrial" else _T["growth"]
+        grow_cap = _INDUSTRIAL_GROWTH_CAP if sector_group == "industrial" else 9.5
 
         def get_at(df: pd.DataFrame, keys: List[str], col: int) -> Optional[float]:
             if col >= df.shape[1]:
@@ -1976,7 +1992,7 @@ class FundamentalEngine:
         scored: List[Tuple[float, float]] = []
         miss = 0
         for rate, w in [(avg(rev_yoys), 0.40), (avg(ni_yoys), 0.40), (avg(eq_yoys), 0.20)]:
-            s = _normalize(rate, *_T["growth"])
+            s = _normalize(rate, *grow_t)
             if s is not None:
                 scored.append((s, w))
             else:
@@ -1986,7 +2002,7 @@ class FundamentalEngine:
             return None, "missing", 0.0
         mq = round(len(scored) / 3, 2)
         tw = sum(w for _, w in scored)
-        return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+        return round(min(sum(s * w for s, w in scored) / tw, grow_cap), 2), None, mq
 
     # ── Alt skor: Değerleme ─────────────────────────────────────────────────
 
@@ -2185,7 +2201,7 @@ class FundamentalEngine:
                 mean_abs = abs(float(np.mean(valid)))
                 if mean_abs > 0:
                     cv = float(np.std(valid)) / mean_abs
-                    s  = _normalize(cv, 0.0, 2.0, reverse=True)
+                    s  = _normalize(cv, 0.0, 3.0, reverse=True)
                     if s is not None:
                         scored.append((s, 0.50))
                     else:
@@ -2235,7 +2251,7 @@ class FundamentalEngine:
             mean_abs = abs(float(np.mean(ni_vals)))
             if mean_abs > 0:
                 cv = float(np.std(ni_vals)) / mean_abs
-                s = _normalize(cv, 0.0, 2.0, reverse=True)
+                s = _normalize(cv, 0.0, 3.0, reverse=True)
                 if s is not None:
                     scored.append((s, 0.50))
                 else:
