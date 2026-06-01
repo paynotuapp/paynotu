@@ -1661,7 +1661,18 @@ class FundamentalEngine:
             miss += 1
 
         if total_debt is not None and ebitda and ebitda > 0:
-            add(total_debt / ebitda, "nd_ebitda", reverse=True, w=0.20)
+            cash = _yf_get(bs, ["CashAndCashEquivalents",
+                                 "Cash And Cash Equivalents",
+                                 "CashCashEquivalentsAndShortTermInvestments",
+                                 "Cash Cash Equivalents And Short Term Investments"])
+            if cash is not None:
+                net_debt = max(total_debt - cash, 0)
+            else:
+                net_debt = total_debt
+                flags.append(
+                    "ND/EBITDA nakit verisi bulunamadigi icin brut borc uzerinden hesaplandi."
+                )
+            add(net_debt / ebitda, "nd_ebitda", reverse=True, w=0.20)
         else:
             miss += 1
 
