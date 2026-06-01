@@ -65,9 +65,11 @@ _T: Dict[str, Tuple[float, float]] = {
 # ── Sektöre göre F/K ve PD/DD tavan değerleri (normalize için) ───────────────
 _FK_HIGH  = {"bank": 20.0, "gyo": 20.0, "insurance": 20.0,
              "holding": 25.0, "energy_utility": 20.0,
+             "technology_operational": 35.0,
              "industrial": 30.0, "unknown": 30.0}
 _PDDD_HIGH = {"bank": 2.0, "gyo": 1.5, "insurance": 2.0,
               "holding": 2.5, "energy_utility": 2.5,
+              "technology_operational": 8.0,
               "industrial": 4.0, "unknown": 4.0}
 
 # ── Sektör eşleme tablosu (normalize edilmiş Türkçe → group) ─────────────────
@@ -119,10 +121,10 @@ _UNSUPPORTED_GROUPS: set = {
 # V1'de genel operasyonel (industrial) modelle hesaplanan genişletilmiş gruplar
 # Compute fonksiyonlarına "industrial" olarak iletilir; flag eklenir.
 _COMPUTE_GROUP_MAP: Dict[str, str] = {
-    "technology_operational":  "industrial",
     "service_operational":     "industrial",
     "real_estate_operational": "industrial",
     # energy_utility: özel _calculate_energy_utility() yolu kullanır
+    # technology_operational: özel _calculate_technology_operational() yolu kullanır
 }
 
 _V1_OPERATIONAL_FLAG = (
@@ -150,9 +152,9 @@ _PIOTROSKI_OPERATIONAL_FLAG = (
     "Piotroski skoru genel operasyonel finansal tablo mantığıyla hesaplanmıştır."
 )
 _PIOTROSKI_OPERATIONAL_GROUPS: set = {
-    "technology_operational",
     "service_operational", "real_estate_operational",
     # energy_utility: limited grubuna taşındı
+    # technology_operational: özel model, applicable — bu gruptan çıkarıldı
 }
 
 
@@ -318,6 +320,21 @@ _EU_WEIGHTS: Dict[str, float] = {
     "stability":     0.15,   # OI pozitif oran + OI CV
     "valuation":     0.20,   # P/B dominant
     "piotroski":     0.05,   # limited, final skora dahil değil — dışlanır
+}
+
+# ── Technology Operational V1 ağırlıkları ─────────────────────────────────────
+# Tüm 7 alt skor applicable → wapp = 1.00.
+# cash_flow: OCF bazlı, düşük ağırlık (FCF capex missing).
+# piotroski: applicable, 0.05 ağırlıkla final skora dahil.
+# stability: çok düşük (proje döngüsü volatilitesi tolere edilir).
+_TECH_WEIGHTS: Dict[str, float] = {
+    "profitability": 0.25,   # op_margin + ROA + gross_margin (TTM)
+    "balance_sheet": 0.20,   # asset_strength
+    "cash_flow":     0.10,   # OCF bazlı (FCF capex missing)
+    "growth":        0.20,   # OI YoY dominant
+    "valuation":     0.15,   # P/B tavan 8.0
+    "stability":     0.05,   # OI CV (proje döngüsü tolere)
+    "piotroski":     0.05,   # applicable, final skora dahil
 }
 
 # P/B skor parametreleri
@@ -909,6 +926,10 @@ class FundamentalEngine:
         # ── Energy Utility özel yolu ────────────────────────────────────────
         if sg == "energy_utility":
             return self._calculate_energy_utility(ticker, sg, flags)
+
+        # ── Technology Operational özel yolu ────────────────────────────────
+        if sg == "technology_operational":
+            return self._calculate_technology_operational(ticker, sg, flags)
 
         # ── Insurance özel yolu ─────────────────────────────────────────────
         if sg == "insurance":
@@ -6376,6 +6397,742 @@ class FundamentalEngine:
                 parts.append("Faaliyet kârı istikrarı orta düzeyde seyretmektedir.")
             else:
                 parts.append("Faaliyet kârı istikrarı sınırlı seyretmektedir.")
+
+        if subscores.valuation is not None:
+            if subscores.valuation >= 7.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "destekleyici düzeydedir."
+                )
+            elif subscores.valuation >= 4.0:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine yakın "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Değerleme çarpanları (P/B) sektör eşiklerine göre "
+                    "sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if not parts:
+            return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Technology Operational V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_technology_operational(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Technology Operational V1 modeli (savunma, yazılım, telekom, elektronik).
+
+        Primary: isyatirim_quarterly → borsapy_yearly (fallback).
+        yfinance: sadece valuation (P/B, P/E, marketCap).
+        cash_flow: OCF bazlı, düşük ağırlık (FCF capex missing).
+        piotroski: applicable, 0.05 ağırlıkla final skora dahil.
+        Profitability: operating_income dominant (NKM, ROE dışarıda).
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri çekilemedi")
+
+        df    = data["is_"]
+        bs    = data["bs"]
+        isyat = data.get("isyat", False)
+        yf    = data.get("yf", False)
+
+        # ── Zorunlu metrikler ─────────────────────────────────────────────────
+        if isyat or not yf:
+            equity       = _get_row(bs, _EQUITY_KEYS)
+            total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+        else:
+            equity       = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            total_assets = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+
+        if equity is None or total_assets is None:
+            flags.append(
+                "Technology Operational modeli için zorunlu metrikler eksik "
+                "(equity / total_assets); skor hesaplanamadı."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "zorunlu metrikler eksik"
+            )
+
+        # ── Negatif özkaynak: skor = 0.0, güvenli dön ────────────────────────
+        if equity < 0:
+            flags.append("Teknoloji: Negatif özkaynak tespit edildi.")
+            return FundamentalResult(
+                ticker=ticker,
+                financial_score=0.0,
+                financial_score_label="Çok Zayıf",
+                financial_score_quality=0.0,
+                subscores=FundamentalSubscores(),
+                piotroski=None,
+                financial_flags=flags,
+                explanation="Finansal tablo verisiyle değerlendirme yapıldı.",
+                sector_group=sector_group,
+                data_source=data.get("data_source", "isyatirim_quarterly"),
+                period=data.get("period"),
+            )
+
+        # ── Sabit flagler ────────────────────────────────────────────────────
+        flags.append(
+            "Teknoloji: Ar-Ge gideri verisi alınamadı; bu metrik "
+            "değerlendirme dışında tutulmuştur."
+        )
+        flags.append(
+            "Teknoloji: FCF hesaplanamadı (sermaye harcamaları verisi eksik); "
+            "nakit akışı OCF bazlı değerlendirildi."
+        )
+
+        # ── Heuristik flagler ─────────────────────────────────────────────────
+        if isyat:
+            _rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+            _rev_q1  = _get_row_period(df, _REVENUE_KEYS, 0)
+            _da_ttm  = _iy_ttm_sum(df, _AMORTIZATION_KEYS, n=4, min_valid=2)
+        elif yf:
+            _rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+            _rev_q1  = _yf_get(df, YF_REVENUE_KEYS)
+            _da_ttm  = None   # yfinance path'te DA sonraki metodda hesaplanır
+        else:
+            _rev_ttm = _get_row(df, _REVENUE_KEYS)
+            _rev_q1  = _get_row(df, _REVENUE_KEYS)
+            _da_ttm  = _get_row(df, _AMORTIZATION_KEYS)
+
+        # Düşük gelir flag: en güncel çeyrek < 0.02B veya TTM < 0.1B
+        if ((_rev_q1 is not None and _rev_q1 < 0.02e9) or
+                (_rev_ttm is not None and _rev_ttm < 0.1e9)):
+            flags.append(
+                "Teknoloji: Gelir düzeyi çok düşük; faaliyet marjı "
+                "güvenilir olmayabilir."
+            )
+
+        if (_da_ttm is not None and _rev_ttm is not None and
+                _rev_ttm > 0 and _da_ttm / _rev_ttm > 0.25):
+            flags.append(
+                "Teknoloji: Yüksek amortisman; altyapı/lisans yatırımı "
+                "ağırlıklı yapı olabilir."
+            )
+
+        if isyat:
+            _neg_ni = sum(
+                1 for i in range(min(4, df.shape[1]))
+                if (_get_row_period(df, _NET_PROFIT_KEYS, i) or 0) < 0
+            )
+            if _neg_ni >= 2:
+                flags.append(
+                    "Teknoloji: Net kâr son dönemlerde negatif; finansman "
+                    "gideri veya tek seferlik kalem etkisi olabilir."
+                )
+
+        # ── Piotroski: applicable, final skora dahil ──────────────────────────
+        flags.append(
+            "Teknoloji: Piotroski kriterleri değerlendirilmiştir; proje "
+            "bazlı gelir dalgalanmaları bazı kriterleri etkileyebilir."
+        )
+        piotr = self._compute_piotroski(data, "technology_operational", flags)
+
+        if piotr is not None:
+            piotr_s = piotr.normalized
+            if piotr.applicability == "not_applicable":
+                piotr_r = "not_applicable"
+                piotr_q = 1.0
+            elif piotr.normalized is not None:
+                piotr_r = None
+                piotr_q = piotr.coverage
+            else:
+                piotr_r = "missing"
+                piotr_q = 0.0
+        else:
+            piotr_s = None
+            piotr_r = "missing"
+            piotr_q = 0.0
+
+        # ── Alt skor hesabı ──────────────────────────────────────────────────
+        prof_s, prof_r, prof_q = self._tech_profitability(
+            data, total_assets, flags
+        )
+        as_s,   as_r,   as_q   = self._tech_asset_strength(
+            data, equity, total_assets, flags
+        )
+        cf_s,   cf_r,   cf_q   = self._tech_cash_flow(data, flags)
+        grow_s, grow_r, grow_q = self._tech_growth(data, flags)
+        val_s,  val_r,  val_q  = self._tech_valuation(data, equity, flags)
+        stab_s, stab_r, stab_q = self._tech_stability(data, flags)
+
+        reasons = {
+            "profitability": (prof_s, prof_r,  prof_q),
+            "balance_sheet": (as_s,   as_r,    as_q),
+            "cash_flow":     (cf_s,   cf_r,    cf_q),
+            "growth":        (grow_s, grow_r,  grow_q),
+            "valuation":     (val_s,  val_r,   val_q),
+            "stability":     (stab_s, stab_r,  stab_q),
+            "piotroski":     (piotr_s, piotr_r, piotr_q),
+        }
+        final_score, quality = self._weighted_average(reasons, _TECH_WEIGHTS)
+
+        if quality < 0.35:
+            final_score = None
+            flags.append(
+                f"Technology Operational finansal skoru hesaplanamadı: veri "
+                f"kalitesi eşiğin altında (quality={quality:.2f} < 0.35)."
+            )
+        elif quality < 0.55:
+            flags.append(
+                "Technology Operational skoru sınırlı veriyle hesaplanmıştır."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(as_s),
+            cash_flow     = _r2(cf_s),
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = _r2(piotr_s),
+        )
+
+        explanation = self._tech_explain(subscores)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle değerlendirme yapıldı."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _tech_profitability(
+        self,
+        data:         dict,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Op_margin TTM (50%) + ROA TTM (30%) + Gross_margin TTM (20%).
+        NKM, ROE kullanılmaz. Eşikler teknoloji sektörüne özgü.
+        """
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                oi_ttm  = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+                gp_ttm  = _iy_ttm_sum(df, _GROSS_PROFIT_KEYS, n=4, min_valid=2)
+                ni_ttm  = _iy_ttm_sum(df, _NET_PROFIT_KEYS, n=4, min_valid=2)
+            elif yf:
+                oi_ttm  = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+                gp_ttm  = _yf_ttm(df, YF_GROSS_PROFIT_KEYS)
+                ni_ttm  = _yf_ttm(df, YF_NET_INCOME_KEYS)
+            else:
+                oi_ttm  = _get_row(df, _OPERATING_PROFIT_KEYS)
+                rev_ttm = _get_row(df, _REVENUE_KEYS)
+                gp_ttm  = _get_row(df, _GROSS_PROFIT_KEYS)
+                ni_ttm  = _get_row(df, _NET_PROFIT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Operating margin [0.00, 0.25]
+            s = _normalize(_safe_div(oi_ttm, rev_ttm), 0.0, 0.25)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            # ROA [0.00, 0.15]
+            s = _normalize(_safe_div(ni_ttm, total_assets), 0.0, 0.15)
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            # Gross margin [0.00, 0.60] — yazılım için geniş eşik
+            s = _normalize(_safe_div(gp_ttm, rev_ttm), 0.0, 0.60)
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _tech_asset_strength(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity Ratio (50%) + Debt/Assets (30%) + ND/EBITDA proxy (20%).
+
+        EBITDA proxy = TTM OI + TTM DA. Net debt = financial_debt - cash.
+        current_ratio, interest_coverage, classic debt_to_ebitda kullanılmaz.
+        """
+        _TECH_DA_YF_KEYS = [
+            "ReconciledDepreciation", "DepreciationAndAmortization",
+            "DepreciationAmortizationDepletion",
+            "Reconciled Depreciation", "Depreciation And Amortization",
+        ]
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            cf    = data.get("cf")
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                fin_debt = _get_row(bs, _FIN_DEBT_KEYS)
+                cash     = _get_row(bs, _CASH_KEYS)
+                oi_ttm   = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                da_ttm   = _iy_ttm_sum(df, _AMORTIZATION_KEYS, n=4, min_valid=2)
+            elif yf:
+                fin_debt = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+                cash     = _yf_get(bs, ["CashAndCashEquivalents",
+                                         "Cash And Cash Equivalents",
+                                         "CashCashEquivalentsAndShortTermInvestments"])
+                oi_ttm   = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                da_frame = cf if cf is not None else df
+                da_ttm   = _yf_ttm(da_frame, _TECH_DA_YF_KEYS)
+            else:
+                fin_debt = _sum_key_latest(bs, "Finansal Borçlar")
+                cash     = _get_row(bs, _CASH_KEYS)
+                oi_ttm   = _get_row(df, _OPERATING_PROFIT_KEYS)
+                da_src   = cf if cf is not None else df
+                da_ttm   = _get_row(da_src, _AMORTIZATION_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity Ratio [0.20, 0.80]
+            s = _normalize(_safe_div(equity, total_assets), 0.20, 0.80)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            # Debt / Assets [0.00, 0.50] reverse
+            if fin_debt is not None and total_assets > 0:
+                s = _normalize(fin_debt / total_assets, 0.0, 0.50, reverse=True)
+                if s is not None: scored.append((s, 0.30))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            # ND / EBITDA proxy [0.00, 6.00] reverse
+            if (fin_debt is not None and oi_ttm is not None
+                    and da_ttm is not None):
+                ebitda_proxy = oi_ttm + da_ttm
+                if ebitda_proxy > 0:
+                    net_debt = fin_debt - (cash or 0.0)
+                    s = _normalize(net_debt / ebitda_proxy, 0.0, 6.0, reverse=True)
+                    if s is not None: scored.append((s, 0.20))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] asset_strength: {e}")
+            return None, "missing", 0.0
+
+    def _tech_cash_flow(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OCF pozitif? (60%) + OCF/revenue TTM (40%).
+        FCF hesaplanmaz (capex missing). Revenue < 0.1B → OCF/rev miss.
+        """
+        try:
+            df    = data["is_"]
+            cf    = data.get("cf")
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                ocf     = _get_row(df, _OPERATING_CF_KEYS)
+                rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+            elif yf:
+                ocf     = _yf_get(cf, YF_OPERATING_CASHFLOW_KEYS) if cf is not None else None
+                rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+            else:
+                ocf_src = cf if cf is not None else df
+                ocf     = _get_row(ocf_src, _OPERATING_CF_KEYS)
+                rev_ttm = _get_row(df, _REVENUE_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # OCF pozitif? binary
+            if ocf is not None:
+                scored.append((10.0 if ocf > 0 else 0.0, 0.60))
+            else:
+                miss += 1
+
+            # OCF / revenue TTM [-0.05, 0.20]
+            if (ocf is not None and rev_ttm is not None and rev_ttm > 0.1e9):
+                s = _normalize(ocf / rev_ttm, -0.05, 0.20)
+                if s is not None: scored.append((s, 0.40))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] cash_flow: {e}")
+            return None, "missing", 0.0
+
+    def _tech_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI YoY (50%) + Revenue YoY (30%) + Equity YoY (20%).
+        Net income YoY kullanılmaz. Aynı çeyrek karşılaştırması.
+        """
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            def yoy(curr: Optional[float], prior: Optional[float]) -> Optional[float]:
+                if curr is None or prior is None or prior == 0:
+                    return None
+                return max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+
+            oi_yoys:  List[float] = []
+            rev_yoys: List[float] = []
+            eq_yoys:  List[float] = []
+
+            if isyat:
+                n = min(df.shape[1], bs.shape[1])
+
+                def _get_at(frame: pd.DataFrame, keys: List[str],
+                             col: int) -> Optional[float]:
+                    if col >= frame.shape[1]:
+                        return None
+                    idx = frame.index.str.strip()
+                    for k in keys:
+                        m = frame[idx == k.strip()]
+                        if not m.empty:
+                            v = m.iloc[0, col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                for i in range(n - 4):
+                    r = yoy(_get_at(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_at(df, _OPERATING_PROFIT_KEYS, i + 4))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_at(df, _REVENUE_KEYS, i),
+                            _get_at(df, _REVENUE_KEYS, i + 4))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_at(bs, _EQUITY_KEYS, i),
+                            _get_at(bs, _EQUITY_KEYS, i + 4))
+                    if r is not None: eq_yoys.append(r)
+
+            elif yf:
+                bs_y = data.get("bs_y")
+                is_y = data.get("is_y")
+                n_is = df.shape[1]
+                n_bs = bs.shape[1]
+
+                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
+                            col: int) -> Optional[float]:
+                    if frame is None:
+                        return None
+                    for k in keys:
+                        if k in frame.index and col < frame.shape[1]:
+                            v = frame.loc[k].iloc[col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
+                oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
+                if (oi_c is None or oi_p is None) and is_y is not None:
+                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                r = yoy(oi_c, oi_p)
+                if r is not None: oi_yoys.append(r)
+
+                rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
+                rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
+                if (rev_c is None or rev_p is None) and is_y is not None:
+                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                r = yoy(rev_c, rev_p)
+                if r is not None: rev_yoys.append(r)
+
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                if (eq_c is None or eq_p is None) and bs_y is not None:
+                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                r = yoy(eq_c, eq_p)
+                if r is not None: eq_yoys.append(r)
+
+            else:
+                n = min(bs.shape[1], df.shape[1])
+                for i in range(n - 1):
+                    r = yoy(_get_row_period(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_row_period(df, _OPERATING_PROFIT_KEYS, i + 1))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_row_period(df, _REVENUE_KEYS, i),
+                            _get_row_period(df, _REVENUE_KEYS, i + 1))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_row_period(bs, _EQUITY_KEYS, i),
+                            _get_row_period(bs, _EQUITY_KEYS, i + 1))
+                    if r is not None: eq_yoys.append(r)
+
+            def avg(lst: List[float]) -> Optional[float]:
+                return float(np.mean(lst)) if lst else None
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            s = _normalize(avg(oi_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            s = _normalize(avg(rev_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            s = _normalize(avg(eq_yoys), *_T["growth"])
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw, 9.5), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] growth: {e}")
+            return None, "missing", 0.0
+
+    def _tech_valuation(
+        self,
+        data:   dict,
+        equity: float,
+        flags:  List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/B (70%) + P/E koşullu (30%).
+        P/B tavan: _PDDD_HIGH["technology_operational"] = 8.0
+        P/E tavan: _FK_HIGH["technology_operational"] = 35.0
+        P/E: sadece 0 < P/E < 35.
+        """
+        try:
+            info      = data.get("info") or {}
+            fk_high   = _FK_HIGH.get("technology_operational", 35.0)
+            pddd_high = _PDDD_HIGH.get("technology_operational", 8.0)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── P/B (70%) — marketCap/equity öncelikli ─────────────────────────
+            pb_added      = False
+            market_cap    = info.get("marketCap") if isinstance(info, dict) else None
+            price_to_book = info.get("priceToBook") if isinstance(info, dict) else None
+
+            if market_cap and equity > 0:
+                pb = market_cap / equity
+                if pb > 0:
+                    if pb > 5.0:
+                        flags.append(
+                            "Teknoloji: Değerleme çarpanı yüksek; büyüme "
+                            "beklentisi ve piyasa primi içeriyor olabilir."
+                        )
+                    s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.70))
+                        pb_added = True
+
+            if not pb_added:
+                if price_to_book and np.isfinite(price_to_book) and price_to_book > 0:
+                    if price_to_book > 5.0:
+                        flags.append(
+                            "Teknoloji: Değerleme çarpanı yüksek; büyüme "
+                            "beklentisi ve piyasa primi içeriyor olabilir."
+                        )
+                    s = _normalize(price_to_book, 0.0, pddd_high, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.70))
+                        pb_added = True
+
+            if not pb_added:
+                miss += 1
+
+            # ── P/E (30%) — sadece 0 < P/E < 35 ─────────────────────────────
+            pe_added    = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if (trailing_pe and np.isfinite(trailing_pe) and 0 < trailing_pe < 35):
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.30))
+                    pe_added = True
+
+            if not pe_added:
+                if trailing_pe and np.isfinite(trailing_pe) and trailing_pe > 0:
+                    flags.append(
+                        "Teknoloji: P/E metriği güvenilir bulunmadığı için "
+                        "valuation P/B ağırlıklı hesaplandı."
+                    )
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _tech_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI pozitif dönem oranı (50%) + OI CV (50%).
+        NI CV kullanılmaz. OI CV [0.0, 2.0] reverse.
+        Ağırlık 0.05 — proje döngüsü volatilitesi tolere edilir.
+        """
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            oi_vals: List[float] = []
+            if isyat:
+                for i in range(min(8, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+            elif yf:
+                for key in YF_OPERATING_INCOME_KEYS:
+                    if key in df.index:
+                        oi_vals = [float(v) for v in df.loc[key] if pd.notna(v)]
+                        break
+            else:
+                for i in range(min(6, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+
+            if not oi_vals:
+                return None, "missing", 0.0
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            pos_ratio = sum(1 for v in oi_vals if v > 0) / len(oi_vals)
+            scored.append((pos_ratio * 10.0, 0.50))
+
+            if len(oi_vals) >= 2:
+                mean_abs = abs(float(np.mean(oi_vals)))
+                if mean_abs > 0:
+                    cv = float(np.std(oi_vals)) / mean_abs
+                    s = _normalize(cv, 0.0, 2.0, reverse=True)
+                    if s is not None: scored.append((s, 0.50))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/tech] stability: {e}")
+            return None, "missing", 0.0
+
+    def _tech_explain(
+        self,
+        subscores: FundamentalSubscores,
+    ) -> str:
+        """Technology Operational açıklama metni. Yatırım tavsiyesi içermez."""
+        parts: List[str] = []
+
+        if subscores.profitability is not None:
+            if subscores.profitability >= 7.0:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine göre destekleyici seyretmektedir."
+                )
+            elif subscores.profitability >= 4.0:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine yakın seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Karlılık göstergeleri (faaliyet marjı/ROA) sektör "
+                    "eşiklerine göre sınırlayıcı etki oluşturmaktadır."
+                )
+
+        if subscores.balance_sheet is not None:
+            if subscores.balance_sheet >= 7.0:
+                parts.append(
+                    "Sermaye yapısı ve borçluluk düzeyi güçlü seyretmektedir."
+                )
+            elif subscores.balance_sheet >= 4.0:
+                parts.append(
+                    "Sermaye yapısı ve borçluluk düzeyi orta düzeyde "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Sermaye yapısı veya borçluluk düzeyi sınırlayıcı etki "
+                    "oluşturmaktadır."
+                )
+
+        if subscores.growth is not None:
+            if subscores.growth >= 7.0:
+                parts.append(
+                    "Büyüme göstergeleri (faaliyet kârı/gelir/özkaynak) "
+                    "güçlü seyretmektedir."
+                )
+            elif subscores.growth >= 4.0:
+                parts.append("Büyüme göstergeleri orta düzeyde seyretmektedir.")
+            else:
+                parts.append("Büyüme göstergeleri sınırlı seyretmektedir.")
 
         if subscores.valuation is not None:
             if subscores.valuation >= 7.0:
