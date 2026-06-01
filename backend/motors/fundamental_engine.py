@@ -1708,37 +1708,62 @@ class FundamentalEngine:
             scored: List[Tuple[float, float]] = []
             miss = 0
 
-            # İşletme CF pozitif?
+            # İşletme CF pozitif? (her zaman değerlendirilir)
             if op_cf is not None:
                 scored.append((10.0 if op_cf > 0 else 0.0, 0.35))
             else:
                 miss += 1
 
-            # FCF pozitif?
             if fcf is not None:
+                # ── FCF mevcut: normal FCF bazlı hesap ───────────────────────
                 scored.append((10.0 if fcf > 0 else 0.0, 0.30))
-            else:
-                miss += 1
 
-            # FCF / Net Kar (earnings quality)
-            if fcf is not None and net_kar and net_kar > 0:
-                s = _normalize(_safe_div(fcf, net_kar), *_T["fcf_nk"])
-                if s is not None:
-                    scored.append((s, 0.20))
+                if net_kar and net_kar > 0:
+                    s = _normalize(_safe_div(fcf, net_kar), *_T["fcf_nk"])
+                    if s is not None:
+                        scored.append((s, 0.20))
+                    else:
+                        miss += 1
                 else:
                     miss += 1
-            else:
-                miss += 1
 
-            # FCF / Satışlar
-            if fcf is not None and satis and satis > 0:
-                s = _normalize(_safe_div(fcf, satis), *_T["fcf_margin"])
-                if s is not None:
-                    scored.append((s, 0.15))
+                if satis and satis > 0:
+                    s = _normalize(_safe_div(fcf, satis), *_T["fcf_margin"])
+                    if s is not None:
+                        scored.append((s, 0.15))
+                    else:
+                        miss += 1
                 else:
                     miss += 1
+
+            elif op_cf is not None:
+                # ── FCF yok, OCF mevcut: OCF bazlı fallback ──────────────────
+                flags.append(
+                    "FCF verisi bulunamadi; isletme nakit akisi bazli metrikler kullanildi."
+                )
+                scored.append((10.0 if op_cf > 0 else 0.0, 0.30))
+
+                if net_kar and net_kar > 0:
+                    s = _normalize(_safe_div(op_cf, net_kar), *_T["fcf_nk"])
+                    if s is not None:
+                        scored.append((s, 0.20))
+                    else:
+                        miss += 1
+                else:
+                    miss += 1
+
+                if satis and satis > 0:
+                    s = _normalize(_safe_div(op_cf, satis), *_T["fcf_margin"])
+                    if s is not None:
+                        scored.append((s, 0.15))
+                    else:
+                        miss += 1
+                else:
+                    miss += 1
+
             else:
-                miss += 1
+                # ── FCF de yok, OCF de yok ────────────────────────────────────
+                miss += 3
 
             if not scored:
                 return None, "missing", 0.0
@@ -1767,33 +1792,62 @@ class FundamentalEngine:
         scored: List[Tuple[float, float]] = []
         miss = 0
 
+        # İşletme CF pozitif? (her zaman değerlendirilir)
         if op_cf is not None:
             scored.append((10.0 if op_cf > 0 else 0.0, 0.35))
         else:
             miss += 1
 
         if fcf is not None:
+            # ── FCF mevcut: normal FCF bazlı hesap ───────────────────────────
             scored.append((10.0 if fcf > 0 else 0.0, 0.30))
-        else:
-            miss += 1
 
-        if fcf is not None and net_income and net_income > 0:
-            s = _normalize(_safe_div(fcf, net_income), *_T["fcf_nk"])
-            if s is not None:
-                scored.append((s, 0.20))
+            if net_income and net_income > 0:
+                s = _normalize(_safe_div(fcf, net_income), *_T["fcf_nk"])
+                if s is not None:
+                    scored.append((s, 0.20))
+                else:
+                    miss += 1
             else:
                 miss += 1
-        else:
-            miss += 1
 
-        if fcf is not None and revenue and revenue > 0:
-            s = _normalize(_safe_div(fcf, revenue), *_T["fcf_margin"])
-            if s is not None:
-                scored.append((s, 0.15))
+            if revenue and revenue > 0:
+                s = _normalize(_safe_div(fcf, revenue), *_T["fcf_margin"])
+                if s is not None:
+                    scored.append((s, 0.15))
+                else:
+                    miss += 1
             else:
                 miss += 1
+
+        elif op_cf is not None:
+            # ── FCF yok, OCF mevcut: OCF bazlı fallback ──────────────────────
+            flags.append(
+                "FCF verisi bulunamadi; isletme nakit akisi bazli metrikler kullanildi."
+            )
+            scored.append((10.0 if op_cf > 0 else 0.0, 0.30))
+
+            if net_income and net_income > 0:
+                s = _normalize(_safe_div(op_cf, net_income), *_T["fcf_nk"])
+                if s is not None:
+                    scored.append((s, 0.20))
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if revenue and revenue > 0:
+                s = _normalize(_safe_div(op_cf, revenue), *_T["fcf_margin"])
+                if s is not None:
+                    scored.append((s, 0.15))
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
         else:
-            miss += 1
+            # ── FCF de yok, OCF de yok ────────────────────────────────────────
+            miss += 3
 
         if not scored:
             return None, "missing", 0.0
