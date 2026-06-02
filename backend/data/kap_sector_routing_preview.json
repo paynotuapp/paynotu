@@ -358,7 +358,7 @@
       "kap_alt_sektor": "TARIM VE HAYVANCILIK AVCILIK VE İLGİLİ HİZMET FAALİYETLERİ",
       "paynotu_sector_group": "industrial",
       "financial_model": "industrial_general",
-      "sector_profile": "industrial_general",
+      "sector_profile": "agriculture_operational_candidate",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
@@ -369,8 +369,8 @@
         "yfinance_quarterly",
         "borsapy_yearly"
       ],
-      "routing_note": "",
-      "manual_review_required": false,
+      "routing_note": "KAP ana sektörü tarım/ormancılık/balıkçılık; V1'de agriculture özel modeli olmadığı için industrial_general kullanıldı.",
+      "manual_review_required": true,
       "match_level": "sub_sector",
       "sector_source": "KAP",
       "sector_source_file": "sektorler.pdf",
@@ -14086,7 +14086,7 @@
       "kap_alt_sektor": "GIDA, İÇECEK VE TÜTÜN",
       "paynotu_sector_group": "industrial",
       "financial_model": "industrial_general",
-      "sector_profile": "industrial_general",
+      "sector_profile": "food_beverage",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
