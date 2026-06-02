@@ -123,11 +123,22 @@ _UNSUPPORTED_GROUPS: set = {
 # V1'de genel operasyonel (industrial) modelle hesaplanan genişletilmiş gruplar
 # Compute fonksiyonlarına "industrial" olarak iletilir; flag eklenir.
 _COMPUTE_GROUP_MAP: Dict[str, str] = {
-    "real_estate_operational": "industrial",
+    # real_estate_operational: özel _calculate_real_estate_operational() yolu kullanır
     # service_operational: özel _calculate_service_operational() yolu kullanır
     # energy_utility: özel _calculate_energy_utility() yolu kullanır
     # technology_operational: özel _calculate_technology_operational() yolu kullanır
 }
+
+# ── Real Estate Operational — yatırım amaçlı gayrimenkul satır adları ─────────
+_REAL_ESTATE_INVESTMENT_PROPERTY_KEYS: List[str] = [
+    "Yatırım Amaçlı Gayrimenkuller",
+    "Yatırım Amaçlı Gayrimenkuller (Net)",
+    "Investment Property",
+    "Investment Properties",
+]
+
+# Mapping şüpheli real_estate_operational ticker'ları (flag için)
+_RE_OP_SUSPICIOUS_TICKERS: set = {"AGROT", "TATGD"}
 
 _V1_OPERATIONAL_FLAG = (
     "Bu sektör V1'de genel operasyonel model ile hesaplanmıştır; "
@@ -971,6 +982,10 @@ class FundamentalEngine:
         # ── Holding özel yolu ───────────────────────────────────────────────
         if sg == "holding":
             return self._calculate_holding(ticker, sg, flags)
+
+        # ── Real Estate Operational özel yolu ──────────────────────────────
+        if sg == "real_estate_operational":
+            return self._calculate_real_estate_operational(ticker, sg, flags)
 
         # ── Energy Utility özel yolu ────────────────────────────────────────
         if sg == "energy_utility":
@@ -8082,6 +8097,198 @@ class FundamentalEngine:
         if not parts:
             return "Finansal tablo verisiyle degerlendirildi."
         return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Real Estate Operational V1 — IP/TA Bazlı Routing
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _real_estate_ip_ratio(self, bs: pd.DataFrame) -> Optional[float]:
+        """Yatirim amacli gayrimenkul / toplam varlik orani.
+
+        Returns:
+            float  — oran (0.0 dahil, IP yoksa 0.0 doner)
+            None   — total_assets alinamazsa
+        """
+        total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+        if total_assets is None or total_assets <= 0:
+            return None
+
+        ip: Optional[float] = None
+
+        # Tam eslesme
+        for key in _REAL_ESTATE_INVESTMENT_PROPERTY_KEYS:
+            try:
+                idx = bs.index.str.strip()
+                matches = bs[idx == key.strip()]
+                if not matches.empty:
+                    v = matches.iloc[0, 0]
+                    if pd.notna(v):
+                        ip = float(v)
+                        break
+            except Exception:
+                continue
+
+        # Parcali eslesme fallback
+        if ip is None:
+            try:
+                partial = bs[
+                    bs.index.str.contains("Yat", na=False) &
+                    bs.index.str.contains("Amaç", na=False)
+                ]
+                if partial.empty:
+                    partial = bs[
+                        bs.index.str.contains("Investment Prop", na=False, case=False)
+                    ]
+                if not partial.empty:
+                    v = partial.iloc[0, 0]
+                    if pd.notna(v):
+                        ip = float(v)
+            except Exception:
+                pass
+
+        return (ip if ip is not None else 0.0) / total_assets
+
+    def _calculate_real_estate_operational(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Real Estate Operational V1 — IP/TA bazli routing.
+
+        IP/TA > 0.40 -> GYO V1 proxy (AVM, ticari gayrimenkul, kira geliri)
+        IP/TA <= 0.40 -> Industrial hardened proxy (proje gelistirici, operasyonel)
+
+        Yeni skor modeli yazilmadi; mevcut iki modelden biri secilir.
+        """
+        # ── Veri on-cekimi (ip_ratio tespiti icin) ───────────────────────────
+        pre_flags: List[str] = []
+        pre_data = self._fetch_data(ticker, sector_group, pre_flags)
+
+        ip_ratio: Optional[float] = None
+        if pre_data is not None:
+            ip_ratio = self._real_estate_ip_ratio(pre_data["bs"])
+
+        # ── Mapping suphe flag (ticker bazli) ────────────────────────────────
+        if ticker.upper() in _RE_OP_SUSPICIOUS_TICKERS:
+            flags.append(
+                "Real Estate Operational: sektor eslesmesi suphesel gorunuyor; "
+                "sirket gayrimenkul operasyonel profilinden farkli faaliyet "
+                "gosterebilir."
+            )
+
+        # ── Metrik bazli suphe kontrolu (OI cogunlukla negatif) ───────────────
+        if pre_data is not None and pre_data.get("isyat"):
+            _is = pre_data.get("is_", pd.DataFrame())
+            oi_neg = sum(
+                1 for i in range(min(4, _is.shape[1]))
+                if (_get_row_period(_is, _OPERATING_PROFIT_KEYS, i) or 0) < 0
+            )
+            if oi_neg >= 3:
+                flags.append(
+                    "Real Estate Operational: son donemde faaliyet zarari "
+                    "tespit edildi; model skor uretebilir ancak operasyonel "
+                    "guclukler gozlemlenmektedir."
+                )
+
+        # ── Routing kararı ────────────────────────────────────────────────────
+        if ip_ratio is not None and ip_ratio > 0.40:
+            # GYO proxy — _calculate_gyo kendi verisini ceker
+            flags.append(
+                f"Real Estate Operational: yatirim amacli gayrimenkul / aktif "
+                f"orani yuksek (IP/TA={ip_ratio:.0%}) oldugu icin GYO benzeri "
+                f"model kullanildi."
+            )
+            return self._calculate_gyo(ticker, sector_group, flags)
+
+        else:
+            # Industrial hardened proxy — on-cekilen veri kullanilir
+            ip_str = f"{ip_ratio:.0%}" if ip_ratio is not None else "N/A"
+            flags.append(
+                f"Real Estate Operational: proje/operasyonel yapi nedeniyle "
+                f"industrial hardened model kullanildi (IP/TA={ip_str})."
+            )
+            # on-cekme kaynak flag'lerini ana flag listesine ekle
+            flags.extend(pre_flags)
+
+            if pre_data is None:
+                return self._empty_result(
+                    ticker, sector_group, flags, "veri cekilemedi"
+                )
+
+            compute_sg = "industrial"
+
+            prof_s,  prof_r,  prof_q  = self._compute_profitability(pre_data, compute_sg, flags)
+            bs_s,    bs_r,    bs_q    = self._compute_balance_sheet(pre_data, compute_sg, flags)
+            cf_s,    cf_r,    cf_q    = self._compute_cash_flow(pre_data, compute_sg, flags)
+            grow_s,  grow_r,  grow_q  = self._compute_growth(pre_data, flags, compute_sg)
+            val_s,   val_r,   val_q   = self._compute_valuation(pre_data, compute_sg, flags)
+            stab_s,  stab_r,  stab_q  = self._compute_stability(pre_data, flags, compute_sg)
+            piotr    = self._compute_piotroski(pre_data, compute_sg, flags)
+
+            if piotr is not None:
+                piotr_s = piotr.normalized
+                if piotr.applicability == "not_applicable":
+                    piotr_r, piotr_q = "not_applicable", 1.0
+                elif piotr.normalized is not None:
+                    piotr_r, piotr_q = None, piotr.coverage
+                else:
+                    piotr_r, piotr_q = "missing", 0.0
+            else:
+                piotr_s, piotr_r, piotr_q = None, "missing", 0.0
+
+            reasons = {
+                "profitability": (prof_s,  prof_r,  prof_q),
+                "balance_sheet": (bs_s,    bs_r,    bs_q),
+                "cash_flow":     (cf_s,    cf_r,    cf_q),
+                "growth":        (grow_s,  grow_r,  grow_q),
+                "valuation":     (val_s,   val_r,   val_q),
+                "stability":     (stab_s,  stab_r,  stab_q),
+                "piotroski":     (piotr_s, piotr_r, piotr_q),
+            }
+            final_score, quality = self._weighted_average(reasons, _WEIGHTS)
+
+            if quality < 0.30:
+                final_score = None
+                flags.append(
+                    f"Finansal skor hesaplanamadi: veri kalitesi esik altinda "
+                    f"(quality={quality:.2f})."
+                )
+            elif quality < 0.50:
+                flags.append(
+                    "Finansal skor sinirli veriyle hesaplanmistir."
+                )
+
+            if final_score is not None:
+                final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+            subscores = FundamentalSubscores(
+                profitability = _r2(prof_s),
+                balance_sheet = _r2(bs_s),
+                cash_flow     = _r2(cf_s),
+                growth        = _r2(grow_s),
+                valuation     = _r2(val_s),
+                stability     = _r2(stab_s),
+                piotroski     = _r2(piotr_s),
+            )
+
+            explanation = self._explain(subscores, piotr, compute_sg)
+            if _contains_forbidden(explanation):
+                explanation = "Finansal tablo verisiyle degerlendirildi."
+
+            return FundamentalResult(
+                ticker=ticker,
+                financial_score=final_score,
+                financial_score_label=self._label(final_score),
+                financial_score_quality=round(quality, 2),
+                subscores=subscores,
+                piotroski=piotr,
+                financial_flags=flags,
+                explanation=explanation,
+                sector_group=sector_group,   # "real_estate_operational" korunuyor
+                data_source=pre_data.get("data_source", "isyatirim_quarterly"),
+                period=pre_data.get("period"),
+            )
 
     # ── Boş sonuç ──────────────────────────────────────────────────────────
 
