@@ -66,10 +66,12 @@ _T: Dict[str, Tuple[float, float]] = {
 _FK_HIGH  = {"bank": 20.0, "gyo": 20.0, "insurance": 20.0,
              "holding": 25.0, "energy_utility": 20.0,
              "technology_operational": 35.0,
+             "service_operational": 30.0,
              "industrial": 30.0, "unknown": 30.0}
 _PDDD_HIGH = {"bank": 2.0, "gyo": 1.5, "insurance": 2.0,
               "holding": 2.5, "energy_utility": 2.5,
               "technology_operational": 8.0,
+              "service_operational": 5.0,
               "industrial": 5.0, "unknown": 4.0}
 
 # ── Sektör eşleme tablosu (normalize edilmiş Türkçe → group) ─────────────────
@@ -121,8 +123,8 @@ _UNSUPPORTED_GROUPS: set = {
 # V1'de genel operasyonel (industrial) modelle hesaplanan genişletilmiş gruplar
 # Compute fonksiyonlarına "industrial" olarak iletilir; flag eklenir.
 _COMPUTE_GROUP_MAP: Dict[str, str] = {
-    "service_operational":     "industrial",
     "real_estate_operational": "industrial",
+    # service_operational: özel _calculate_service_operational() yolu kullanır
     # energy_utility: özel _calculate_energy_utility() yolu kullanır
     # technology_operational: özel _calculate_technology_operational() yolu kullanır
 }
@@ -152,7 +154,8 @@ _PIOTROSKI_OPERATIONAL_FLAG = (
     "Piotroski skoru genel operasyonel finansal tablo mantığıyla hesaplanmıştır."
 )
 _PIOTROSKI_OPERATIONAL_GROUPS: set = {
-    "service_operational", "real_estate_operational",
+    "real_estate_operational",
+    # service_operational: özel model, applicable — bu gruptan çıkarıldı
     # energy_utility: limited grubuna taşındı
     # technology_operational: özel model, applicable — bu gruptan çıkarıldı
 }
@@ -343,6 +346,45 @@ _TECH_WEIGHTS: Dict[str, float] = {
     "stability":     0.05,   # OI CV (proje döngüsü tolere)
     "piotroski":     0.05,   # applicable, final skora dahil
 }
+
+# ── Service Operational V1 ağırlıkları ────────────────────────────────────────
+# Tüm 7 alt skor applicable → wapp = 1.00.
+# balance_sheet = asset_strength (equity/assets + ND/EBITDA + CR).
+# cash_flow: OCF bazlı.
+# valuation: 15% — yfinance zorunlu, isyatirim info boş kalabilir.
+# stability: OI bazlı (NI değil).
+# piotroski: applicable, 5% ağırlık.
+_SERVICE_WEIGHTS: Dict[str, float] = {
+    "profitability": 0.25,   # op_margin dominant + ROA + NP margin + gross margin
+    "balance_sheet": 0.20,   # asset_strength: equity/assets + ND/EBITDA + CR
+    "cash_flow":     0.15,   # OCF pozitif + OCF/revenue
+    "growth":        0.15,   # OI YoY dominant + revenue YoY + equity YoY
+    "valuation":     0.15,   # P/B + P/E; yfinance zorunlu
+    "stability":     0.05,   # OI pozitif oran + OI CV
+    "piotroski":     0.05,   # applicable, final skora dahil
+}
+
+# Service Operational spor kulübü özel durum flagleri
+_SERVICE_SPORT_FLAG = (
+    "Spor kuluplerinde finansal tablolar transfer gelirleri, sportif basari ve "
+    "donemsel gelirler nedeniyle standart service modeli ile guvenilir sekilde "
+    "skorlanamaz."
+)
+_SERVICE_PIOTROSKI_AVIATION_FLAG = (
+    "Service Operational: havacilik/ulasim sirketlerinde Piotroski kriterleri "
+    "sinirli yorumlanmalidir."
+)
+_SERVICE_SEASONAL_FLAG = (
+    "Service Operational: donemsel/sezonsal etki nedeniyle karlilik veya nakit "
+    "akisi tek donem bazinda dusuk gorunebilir."
+)
+_SERVICE_HIGH_DA_FLAG = (
+    "Service Operational: yuksek amortisman tespit edildi; EBITDA proxy "
+    "degerlendirmeye dahil edildi."
+)
+_SERVICE_YF_VAL_FLAG = (
+    "Service Operational: valuation verisi yfinance ile desteklendi."
+)
 
 # P/B skor parametreleri
 _IT_PB_DEEP_DISCOUNT = 0.3   # altında → floor skor + flag
@@ -933,6 +975,10 @@ class FundamentalEngine:
         # ── Energy Utility özel yolu ────────────────────────────────────────
         if sg == "energy_utility":
             return self._calculate_energy_utility(ticker, sg, flags)
+
+        # ── Service Operational özel yolu ───────────────────────────────────
+        if sg == "service_operational":
+            return self._calculate_service_operational(ticker, sg, flags)
 
         # ── Technology Operational özel yolu ────────────────────────────────
         if sg == "technology_operational":
@@ -7234,6 +7280,807 @@ class FundamentalEngine:
 
         if not parts:
             return "Finansal tablo verisiyle değerlendirme yapıldı."
+        return " ".join(parts)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Service Operational V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _service_sport_guard(
+        self,
+        is_: pd.DataFrame,
+        bs:  pd.DataFrame,
+    ) -> bool:
+        """Son 8 ceyrekte >=4 negatif equity VEYA son 4 ceyrekte >=3 negatif OI."""
+        neg_eq = 0
+        for i in range(min(8, bs.shape[1])):
+            v = _get_row_period(bs, _EQUITY_KEYS, i)
+            if v is not None and v < 0:
+                neg_eq += 1
+        if neg_eq >= 4:
+            return True
+        neg_oi = 0
+        for i in range(min(4, is_.shape[1])):
+            v = _get_row_period(is_, _OPERATING_PROFIT_KEYS, i)
+            if v is not None and v < 0:
+                neg_oi += 1
+        return neg_oi >= 3
+
+    def _calculate_service_operational(
+        self,
+        ticker:       str,
+        sector_group: str,
+        flags:        List[str],
+    ) -> FundamentalResult:
+        """Service Operational V1 modeli (havacilik, perakende, saglik, turizm vb.).
+
+        Primary: isyatirim_quarterly -> yfinance_quarterly -> borsapy_yearly.
+        Valuation: yfinance info supplementation (isyatirim info bos kalabilir).
+        Profitability: operating income dominant.
+        Growth: OI YoY primary; NI YoY kullanilmaz.
+        Stability: OI bazli (NI degil).
+        Cash flow: OCF bazli.
+        Spor kulupleri: guard ile Ozel Durum.
+        """
+        data = self._fetch_data(ticker, sector_group, flags)
+        if data is None:
+            return self._empty_result(ticker, sector_group, flags, "veri cekilemedi")
+
+        df    = data["is_"]
+        bs    = data["bs"]
+        isyat = data.get("isyat", False)
+        yf    = data.get("yf", False)
+
+        # ── Zorunlu metrikler ─────────────────────────────────────────────────
+        if isyat or not yf:
+            equity       = _get_row(bs, _EQUITY_KEYS)
+            total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+            revenue      = _get_row(df, _REVENUE_KEYS)
+            oi_latest    = _get_row(df, _OPERATING_PROFIT_KEYS)
+        else:
+            equity       = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+            total_assets = _yf_get(bs, YF_TOTAL_ASSETS_KEYS)
+            revenue      = _yf_ttm(df, YF_REVENUE_KEYS)
+            oi_latest    = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+
+        if equity is None or total_assets is None:
+            flags.append(
+                "Service Operational modeli icin zorunlu metrikler eksik "
+                "(equity / total_assets); skor hesaplanamadi."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "zorunlu metrikler eksik"
+            )
+
+        if revenue is None and oi_latest is None:
+            flags.append(
+                "Service Operational modeli icin revenue ve operating_income "
+                "ikisi de eksik; skor hesaplanamadi."
+            )
+            return self._empty_result(
+                ticker, sector_group, flags, "zorunlu metrikler eksik"
+            )
+
+        # ── Spor kulübü guard ─────────────────────────────────────────────────
+        if isyat and self._service_sport_guard(df, bs):
+            flags.append(_SERVICE_SPORT_FLAG)
+            return FundamentalResult(
+                ticker=ticker,
+                financial_score=None,
+                financial_score_label="Veri Yetersiz",
+                financial_score_quality=0.0,
+                subscores=FundamentalSubscores(),
+                piotroski=PiotroskiResult(
+                    score=None, normalized=None, calculated_criteria=0,
+                    total_criteria=9, coverage=0.0, confidence="not_applicable",
+                    applicability="not_applicable", missing_criteria=[], details={},
+                ),
+                financial_flags=flags,
+                explanation="Finansal tablo verisiyle degerlendirildi.",
+                sector_group=sector_group,
+                data_source=data.get("data_source", "isyatirim_quarterly"),
+                period=data.get("period"),
+            )
+
+        # ── Negatif özkaynak guard ────────────────────────────────────────────
+        if equity < 0:
+            flags.append("Service Operational: Negatif ozkaynak tespit edildi.")
+            return FundamentalResult(
+                ticker=ticker,
+                financial_score=0.0,
+                financial_score_label="Cok Zayif",
+                financial_score_quality=0.0,
+                subscores=FundamentalSubscores(),
+                piotroski=None,
+                financial_flags=flags,
+                explanation="Finansal tablo verisiyle degerlendirildi.",
+                sector_group=sector_group,
+                data_source=data.get("data_source", "isyatirim_quarterly"),
+                period=data.get("period"),
+            )
+
+        # ── Eski dönem flag ───────────────────────────────────────────────────
+        period_str = data.get("period") or ""
+        m = re.match(r"^(\d{4})", period_str)
+        if m and int(m.group(1)) < 2024:
+            flags.append(
+                "Finansal veri gorece eski; skor sinirli guncellikte olabilir."
+            )
+
+        # ── D&A / Revenue flag ────────────────────────────────────────────────
+        if isyat:
+            _da_ttm  = _iy_ttm_sum(df, _AMORTIZATION_KEYS, n=4, min_valid=2)
+            _rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+        elif yf:
+            cf_data  = data.get("cf")
+            _da_ttm  = _yf_ttm(cf_data, [
+                "ReconciledDepreciation", "DepreciationAndAmortization",
+                "DepreciationAmortizationDepletion",
+            ]) if cf_data is not None else None
+            _rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+        else:
+            cf_data  = data.get("cf")
+            _da_ttm  = _get_row(cf_data, _AMORTIZATION_KEYS) if cf_data is not None else None
+            _rev_ttm = _get_row(df, _REVENUE_KEYS)
+
+        if (_da_ttm is not None and _rev_ttm is not None
+                and _rev_ttm > 0 and _da_ttm / _rev_ttm > 0.15):
+            flags.append(_SERVICE_HIGH_DA_FLAG)
+
+        # ── Valuation: yfinance supplementation ──────────────────────────────
+        yf_info = data.get("info") or {}
+        if not (yf_info.get("trailingPE") or yf_info.get("priceToBook")
+                or yf_info.get("marketCap")):
+            try:
+                import yfinance as _yf_lib
+                _yf_t   = _yf_lib.Ticker(_to_yfinance_symbol(ticker))
+                _raw    = _yf_t.info or {}
+                _supp: dict = {}
+                try:
+                    _lp = _yf_t.fast_info.last_price
+                    if _lp:
+                        _supp["last"] = float(_lp)
+                except Exception:
+                    pass
+                for _k in ("trailingPE", "priceToBook", "marketCap"):
+                    _v = _raw.get(_k)
+                    if _v is not None:
+                        try:
+                            _fv = float(_v)
+                            if np.isfinite(_fv) and _fv > 0:
+                                _supp[_k] = _fv
+                        except (TypeError, ValueError):
+                            pass
+                if _supp:
+                    yf_info = {**yf_info, **_supp}
+                    flags.append(_SERVICE_YF_VAL_FLAG)
+            except Exception:
+                pass
+        data_val = dict(data)
+        data_val["info"] = yf_info
+
+        # ── Piotroski ─────────────────────────────────────────────────────────
+        piotr = self._compute_piotroski(data, "service_operational", flags)
+        if piotr is not None:
+            piotr_s = piotr.normalized
+            if piotr.applicability == "not_applicable":
+                piotr_r, piotr_q = "not_applicable", 1.0
+            elif piotr.normalized is not None:
+                piotr_r, piotr_q = None, piotr.coverage
+            else:
+                piotr_r, piotr_q = "missing", 0.0
+        else:
+            piotr_s, piotr_r, piotr_q = None, "missing", 0.0
+
+        # ── Alt skor hesabı ───────────────────────────────────────────────────
+        prof_s, prof_r, prof_q = self._service_profitability(data, total_assets, flags)
+        as_s,   as_r,   as_q   = self._service_asset_strength(data, equity, total_assets, flags)
+        cf_s,   cf_r,   cf_q   = self._service_cash_flow(data, flags)
+        grow_s, grow_r, grow_q = self._service_growth(data, flags)
+        val_s,  val_r,  val_q  = self._service_valuation(data_val, equity, flags)
+        stab_s, stab_r, stab_q = self._service_stability(data, flags)
+
+        reasons = {
+            "profitability": (prof_s, prof_r, prof_q),
+            "balance_sheet": (as_s,   as_r,   as_q),
+            "cash_flow":     (cf_s,   cf_r,   cf_q),
+            "growth":        (grow_s, grow_r, grow_q),
+            "valuation":     (val_s,  val_r,  val_q),
+            "stability":     (stab_s, stab_r, stab_q),
+            "piotroski":     (piotr_s, piotr_r, piotr_q),
+        }
+        final_score, quality = self._weighted_average(reasons, _SERVICE_WEIGHTS)
+
+        if quality < 0.35:
+            final_score = None
+            flags.append(
+                f"Service Operational finansal skoru hesaplanamadi: veri "
+                f"kalitesi esigin altinda (quality={quality:.2f} < 0.35)."
+            )
+        elif quality < 0.50:
+            flags.append(
+                "Service Operational skoru sinirli veri kalitesiyle "
+                "hesaplanmistir."
+            )
+
+        if final_score is not None:
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+        subscores = FundamentalSubscores(
+            profitability = _r2(prof_s),
+            balance_sheet = _r2(as_s),
+            cash_flow     = _r2(cf_s),
+            growth        = _r2(grow_s),
+            valuation     = _r2(val_s),
+            stability     = _r2(stab_s),
+            piotroski     = _r2(piotr_s),
+        )
+
+        explanation = self._service_explain(subscores)
+        if _contains_forbidden(explanation):
+            explanation = "Finansal tablo verisiyle degerlendirildi."
+
+        return FundamentalResult(
+            ticker=ticker,
+            financial_score=final_score,
+            financial_score_label=self._label(final_score),
+            financial_score_quality=round(quality, 2),
+            subscores=subscores,
+            piotroski=piotr,
+            financial_flags=flags,
+            explanation=explanation,
+            sector_group=sector_group,
+            data_source=data.get("data_source", "isyatirim_quarterly"),
+            period=data.get("period"),
+        )
+
+    def _service_profitability(
+        self,
+        data:         dict,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI margin TTM (40%) + ROA TTM (25%) + NP margin TTM (20%) + Gross margin (15%)."""
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                oi_ttm  = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+                gp_ttm  = _iy_ttm_sum(df, _GROSS_PROFIT_KEYS, n=4, min_valid=2)
+                ni_ttm  = _iy_ttm_sum(df, _NET_PROFIT_KEYS, n=4, min_valid=2)
+            elif yf:
+                oi_ttm  = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+                gp_ttm  = _yf_ttm(df, YF_GROSS_PROFIT_KEYS)
+                ni_ttm  = _yf_ttm(df, YF_NET_INCOME_KEYS)
+            else:
+                oi_ttm  = _get_row(df, _OPERATING_PROFIT_KEYS)
+                rev_ttm = _get_row(df, _REVENUE_KEYS)
+                gp_ttm  = _get_row(df, _GROSS_PROFIT_KEYS)
+                ni_ttm  = _get_row(df, _NET_PROFIT_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Operating Margin [0.00, 0.25]
+            s = _normalize(_safe_div(oi_ttm, rev_ttm), 0.0, 0.25)
+            if s is not None: scored.append((s, 0.40))
+            else:             miss += 1
+
+            # ROA [0.00, 0.12]
+            s = _normalize(_safe_div(ni_ttm, total_assets), 0.0, 0.12)
+            if s is not None: scored.append((s, 0.25))
+            else:             miss += 1
+
+            # Net Profit Margin [-0.10, 0.20]
+            s = _normalize(_safe_div(ni_ttm, rev_ttm), -0.10, 0.20)
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            # Gross Margin [0.00, 0.50]
+            s = _normalize(_safe_div(gp_ttm, rev_ttm), 0.0, 0.50)
+            if s is not None: scored.append((s, 0.15))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 4, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] profitability: {e}")
+            return None, "missing", 0.0
+
+    def _service_asset_strength(
+        self,
+        data:         dict,
+        equity:       float,
+        total_assets: float,
+        flags:        List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """Equity/Assets (35%) + ND/EBITDA proxy (35%) + Current Ratio (30%)."""
+        _SVC_DA_YF_KEYS = [
+            "ReconciledDepreciation", "DepreciationAndAmortization",
+            "DepreciationAmortizationDepletion",
+            "Reconciled Depreciation", "Depreciation And Amortization",
+        ]
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            cf    = data.get("cf")
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            if isyat:
+                fin_debt = _get_row(bs, _FIN_DEBT_KEYS)
+                cash     = _get_row(bs, _CASH_KEYS)
+                ca       = _get_row(bs, _CURRENT_ASSETS_KEYS)
+                cl       = _get_row(bs, _CURRENT_LIAB_KEYS)
+                oi_ttm   = _iy_ttm_sum(df, _OPERATING_PROFIT_KEYS, n=4, min_valid=2)
+                da_ttm   = (_iy_ttm_sum(df, _AMORTIZATION_KEYS, n=4, min_valid=2)
+                            if cf is None
+                            else _get_row(cf, _AMORTIZATION_KEYS))
+            elif yf:
+                fin_debt = _yf_get(bs, YF_TOTAL_DEBT_KEYS)
+                cash     = _yf_get(bs, ["CashAndCashEquivalents",
+                                         "Cash And Cash Equivalents",
+                                         "CashCashEquivalentsAndShortTermInvestments"])
+                ca       = _yf_get(bs, YF_CURRENT_ASSETS_KEYS)
+                cl       = _yf_get(bs, YF_CURRENT_LIABILITIES_KEYS)
+                oi_ttm   = _yf_ttm(df, YF_OPERATING_INCOME_KEYS)
+                da_frame = cf if cf is not None else df
+                da_ttm   = _yf_ttm(da_frame, _SVC_DA_YF_KEYS)
+            else:
+                fin_debt = _sum_key_latest(bs, "Finansal Borclar")
+                if fin_debt is None:
+                    fin_debt = _get_row(bs, _FIN_DEBT_KEYS)
+                cash     = _get_row(bs, _CASH_KEYS)
+                ca       = _get_row(bs, _CURRENT_ASSETS_KEYS)
+                cl       = _get_row(bs, _CURRENT_LIAB_KEYS)
+                oi_ttm   = _get_row(df, _OPERATING_PROFIT_KEYS)
+                da_src   = cf if cf is not None else df
+                da_ttm   = _get_row(da_src, _AMORTIZATION_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # Equity / Assets [0.05, 0.60]
+            s = _normalize(_safe_div(equity, total_assets), 0.05, 0.60)
+            if s is not None: scored.append((s, 0.35))
+            else:             miss += 1
+
+            # ND / EBITDA proxy [0.00, 6.00] reverse
+            if fin_debt is not None and oi_ttm is not None:
+                ebitda_proxy = oi_ttm + (da_ttm or 0.0)
+                if ebitda_proxy > 0:
+                    if cash is not None:
+                        net_debt = max(fin_debt - cash, 0)
+                    else:
+                        net_debt = fin_debt
+                        flags.append(
+                            "Service Operational: net borc hesabinda nakit verisi "
+                            "bulunamadigi icin brut borc kullanildi."
+                        )
+                    s = _normalize(net_debt / ebitda_proxy, 0.0, 6.0, reverse=True)
+                    if s is not None: scored.append((s, 0.35))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            # Current Ratio [0.50, 2.50]
+            if ca is not None and cl and cl > 0:
+                s = _normalize(ca / cl, 0.50, 2.50)
+                if s is not None: scored.append((s, 0.30))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] asset_strength: {e}")
+            return None, "missing", 0.0
+
+    def _service_cash_flow(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OCF pozitif? (50%) + OCF/Revenue TTM (50%)."""
+        try:
+            df    = data["is_"]
+            cf    = data.get("cf")
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            flags.append(
+                "Service Operational: nakit akisi OCF bazli degerlendirildi; "
+                "FCF tek donem yatirim/sezonallik nedeniyle final skora alinmadi."
+            )
+
+            if isyat:
+                ocf = _get_row(cf, _OPERATING_CF_KEYS) if cf is not None else None
+                if ocf is None:
+                    ocf = _get_row(df, _OPERATING_CF_KEYS)
+                rev_ttm = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+            elif yf:
+                ocf     = (_yf_ttm(cf, YF_OPERATING_CASHFLOW_KEYS)
+                           if cf is not None else None)
+                rev_ttm = _yf_ttm(df, YF_REVENUE_KEYS)
+            else:
+                ocf_src = cf if cf is not None else df
+                ocf     = _get_row(ocf_src, _OPERATING_CF_KEYS)
+                rev_ttm = _get_row(df, _REVENUE_KEYS)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            if ocf is not None:
+                scored.append((10.0 if ocf > 0 else 0.0, 0.50))
+            else:
+                miss += 1
+
+            if ocf is not None and rev_ttm and rev_ttm > 0:
+                s = _normalize(ocf / rev_ttm, -0.05, 0.20)
+                if s is not None: scored.append((s, 0.50))
+                else:             miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] cash_flow: {e}")
+            return None, "missing", 0.0
+
+    def _service_growth(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI YoY (50%) + Revenue YoY (30%) + Equity YoY (20%).
+        Enflasyon tamponu: _INDUSTRIAL_GROWTH_T ve _INDUSTRIAL_GROWTH_CAP.
+        """
+        try:
+            df    = data["is_"]
+            bs    = data["bs"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            def yoy(curr: Optional[float], prior: Optional[float]) -> Optional[float]:
+                if curr is None or prior is None or prior == 0:
+                    return None
+                return max(-1.0, min(5.0, (curr - prior) / abs(prior)))
+
+            oi_yoys:  List[float] = []
+            rev_yoys: List[float] = []
+            eq_yoys:  List[float] = []
+
+            if isyat:
+                n = min(df.shape[1], bs.shape[1])
+
+                def _get_at(frame: pd.DataFrame, keys: List[str],
+                             col: int) -> Optional[float]:
+                    if col >= frame.shape[1]:
+                        return None
+                    idx = frame.index.str.strip()
+                    for k in keys:
+                        m = frame[idx == k.strip()]
+                        if not m.empty:
+                            v = m.iloc[0, col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                for i in range(n - 4):
+                    r = yoy(_get_at(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_at(df, _OPERATING_PROFIT_KEYS, i + 4))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_at(df, _REVENUE_KEYS, i),
+                            _get_at(df, _REVENUE_KEYS, i + 4))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_at(bs, _EQUITY_KEYS, i),
+                            _get_at(bs, _EQUITY_KEYS, i + 4))
+                    if r is not None: eq_yoys.append(r)
+
+            elif yf:
+                bs_y = data.get("bs_y")
+                is_y = data.get("is_y")
+                n_is = df.shape[1]
+                n_bs = bs.shape[1]
+
+                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
+                            col: int) -> Optional[float]:
+                    if frame is None:
+                        return None
+                    for k in keys:
+                        if k in frame.index and col < frame.shape[1]:
+                            v = frame.loc[k].iloc[col]
+                            return float(v) if pd.notna(v) else None
+                    return None
+
+                oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
+                oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
+                if (oi_c is None or oi_p is None) and is_y is not None:
+                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                r = yoy(oi_c, oi_p)
+                if r is not None: oi_yoys.append(r)
+
+                rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
+                rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
+                if (rev_c is None or rev_p is None) and is_y is not None:
+                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                r = yoy(rev_c, rev_p)
+                if r is not None: rev_yoys.append(r)
+
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
+                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                if (eq_c is None or eq_p is None) and bs_y is not None:
+                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                r = yoy(eq_c, eq_p)
+                if r is not None: eq_yoys.append(r)
+
+            else:
+                n = min(bs.shape[1], df.shape[1])
+                for i in range(n - 1):
+                    r = yoy(_get_row_period(df, _OPERATING_PROFIT_KEYS, i),
+                            _get_row_period(df, _OPERATING_PROFIT_KEYS, i + 1))
+                    if r is not None: oi_yoys.append(r)
+                    r = yoy(_get_row_period(df, _REVENUE_KEYS, i),
+                            _get_row_period(df, _REVENUE_KEYS, i + 1))
+                    if r is not None: rev_yoys.append(r)
+                    r = yoy(_get_row_period(bs, _EQUITY_KEYS, i),
+                            _get_row_period(bs, _EQUITY_KEYS, i + 1))
+                    if r is not None: eq_yoys.append(r)
+
+            def avg(lst: List[float]) -> Optional[float]:
+                return float(np.mean(lst)) if lst else None
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            s = _normalize(avg(oi_yoys), *_INDUSTRIAL_GROWTH_T)
+            if s is not None: scored.append((s, 0.50))
+            else:             miss += 1
+
+            s = _normalize(avg(rev_yoys), *_INDUSTRIAL_GROWTH_T)
+            if s is not None: scored.append((s, 0.30))
+            else:             miss += 1
+
+            s = _normalize(avg(eq_yoys), *_INDUSTRIAL_GROWTH_T)
+            if s is not None: scored.append((s, 0.20))
+            else:             miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 3, 2)
+            tw = sum(w for _, w in scored)
+            return round(min(sum(s * w for s, w in scored) / tw,
+                             _INDUSTRIAL_GROWTH_CAP), 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] growth: {e}")
+            return None, "missing", 0.0
+
+    def _service_valuation(
+        self,
+        data:   dict,
+        equity: float,
+        flags:  List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """P/B (50%) + P/E (50%). yfinance info gerekli."""
+        try:
+            info      = data.get("info") or {}
+            fk_high   = _FK_HIGH.get("service_operational", 30.0)
+            pddd_high = _PDDD_HIGH.get("service_operational", 5.0)
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            # ── P/B (50%) ────────────────────────────────────────────────────
+            pb_added   = False
+            market_cap = info.get("marketCap") if isinstance(info, dict) else None
+            ptb        = info.get("priceToBook") if isinstance(info, dict) else None
+
+            if market_cap and equity > 0:
+                pb = market_cap / equity
+                if pb > 0:
+                    s = _normalize(pb, 0.0, pddd_high, reverse=True)
+                    if s is not None:
+                        scored.append((s, 0.50))
+                        pb_added = True
+
+            if not pb_added and ptb and np.isfinite(ptb) and ptb > 0:
+                s = _normalize(ptb, 0.0, pddd_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pb_added = True
+
+            if not pb_added:
+                miss += 1
+
+            # ── P/E (50%) — 0 < P/E < fk_high ──────────────────────────────
+            pe_added    = False
+            trailing_pe = info.get("trailingPE") if isinstance(info, dict) else None
+            if (trailing_pe and np.isfinite(trailing_pe)
+                    and 0 < trailing_pe < fk_high):
+                s = _normalize(trailing_pe, 0.0, fk_high, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.50))
+                    pe_added = True
+
+            if not pe_added:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] valuation: {e}")
+            return None, "missing", 0.0
+
+    def _service_stability(
+        self,
+        data:  dict,
+        flags: List[str],
+    ) -> Tuple[Optional[float], Optional[str], float]:
+        """OI pozitif donem orani (50%) + OI CV (50%). OI CV [0.0, 3.0] reverse."""
+        try:
+            df    = data["is_"]
+            isyat = data.get("isyat", False)
+            yf    = data.get("yf", False)
+
+            oi_vals: List[float] = []
+            if isyat:
+                for i in range(min(8, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+            elif yf:
+                for key in YF_OPERATING_INCOME_KEYS:
+                    if key in df.index:
+                        oi_vals = [float(v) for v in df.loc[key] if pd.notna(v)]
+                        break
+            else:
+                for i in range(min(6, df.shape[1])):
+                    v = _get_row_period(df, _OPERATING_PROFIT_KEYS, i)
+                    if v is not None:
+                        oi_vals.append(v)
+
+            if not oi_vals:
+                return None, "missing", 0.0
+
+            scored: List[Tuple[float, float]] = []
+            miss = 0
+
+            pos_ratio = sum(1 for v in oi_vals if v > 0) / len(oi_vals)
+            scored.append((pos_ratio * 10.0, 0.50))
+
+            if len(oi_vals) >= 2:
+                mean_abs = abs(float(np.mean(oi_vals)))
+                if mean_abs > 0:
+                    cv = float(np.std(oi_vals)) / mean_abs
+                    s  = _normalize(cv, 0.0, 3.0, reverse=True)
+                    if s is not None: scored.append((s, 0.50))
+                    else:             miss += 1
+                else:
+                    miss += 1
+            else:
+                miss += 1
+
+            if not scored:
+                return None, "missing", 0.0
+            mq = round(len(scored) / 2, 2)
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), None, mq
+
+        except Exception as e:
+            logger.warning(f"[fundamental/service] stability: {e}")
+            return None, "missing", 0.0
+
+    def _service_explain(
+        self,
+        subscores: FundamentalSubscores,
+    ) -> str:
+        """Service Operational aciklama metni. Yatirim tavsiyesi icermez."""
+        parts: List[str] = []
+
+        if subscores.profitability is not None:
+            if subscores.profitability >= 7.0:
+                parts.append(
+                    "Karlilik gostergeleri (faaliyet marji/ROA) "
+                    "guclu seyretmektedir."
+                )
+            elif subscores.profitability >= 4.0:
+                parts.append(
+                    "Karlilik gostergeleri (faaliyet marji/ROA) "
+                    "orta duzeyde seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Karlilik gostergeleri (faaliyet marji/ROA) "
+                    "sektorel esiklere gore sinirli seyretmektedir."
+                )
+
+        if subscores.balance_sheet is not None:
+            if subscores.balance_sheet >= 7.0:
+                parts.append(
+                    "Varlik yapisi ve borcluluK duzeyi guclu seyretmektedir."
+                )
+            elif subscores.balance_sheet >= 4.0:
+                parts.append(
+                    "Varlik yapisi ve borcluluk duzeyi orta duzeyde "
+                    "seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Varlik yapisi veya borcluluk duzeyi sinirli etki "
+                    "olusturmaktadir."
+                )
+
+        if subscores.growth is not None:
+            if subscores.growth >= 7.0:
+                parts.append(
+                    "Buyume gostergeleri (faaliyet kari/gelir/ozkaynak) "
+                    "guclu seyretmektedir."
+                )
+            elif subscores.growth >= 4.0:
+                parts.append("Buyume gostergeleri orta duzeyde seyretmektedir.")
+            else:
+                parts.append("Buyume gostergeleri sinirli seyretmektedir.")
+
+        if subscores.valuation is not None:
+            if subscores.valuation >= 7.0:
+                parts.append(
+                    "Degerleme carpanlari (P/B, P/E) sektorel esiklere gore "
+                    "destekleyici duzeydedir."
+                )
+            elif subscores.valuation >= 4.0:
+                parts.append(
+                    "Degerleme carpanlari (P/B, P/E) sektorel esiklere "
+                    "yakin seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Degerleme carpanlari sektorel esiklere gore "
+                    "sinirli etki olusturmaktadir."
+                )
+
+        if subscores.stability is not None:
+            if subscores.stability >= 7.0:
+                parts.append(
+                    "Faaliyet kari istikrari guclu seyretmektedir."
+                )
+            elif subscores.stability >= 4.0:
+                parts.append(
+                    "Faaliyet kari istikrari orta duzeyde seyretmektedir."
+                )
+            else:
+                parts.append(
+                    "Faaliyet kari istikrari sinirli seyretmektedir."
+                )
+
+        if not parts:
+            return "Finansal tablo verisiyle degerlendirildi."
         return " ".join(parts)
 
     # ── Boş sonuç ──────────────────────────────────────────────────────────
