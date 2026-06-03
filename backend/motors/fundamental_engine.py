@@ -397,6 +397,68 @@ _SERVICE_YF_VAL_FLAG = (
     "Service Operational: valuation verisi yfinance ile desteklendi."
 )
 
+# ── Sport Club V1 model sabitleri ─────────────────────────────────────────────
+
+_SPORT_CLUB_WEIGHTS: Dict[str, float] = {
+    "revenue_stability": 0.30,
+    "structural_risk":   0.30,
+    "cash_quality":      0.25,   # 0.20 → 0.25: negatif FCF etkisi artırıldı
+    "deferred_load":     0.10,
+    "valuation":         0.05,   # 0.10 → 0.05: P/B spor kulübünde sınırlı sinyal
+}
+
+_SPORT_DEFERRED_REVENUE_KEYS: List[str] = [
+    "Ertelenmiş Gelirler (Müşteri Söz. Doğan Yük. Dış.Kal.)",
+    "Ertelenmiş Gelirler (Müşteri Söz.Doğan Yük. Dış.Kal.)",
+    "Ertelenmiş Gelirler",
+    "Müşteri Söz. Doğan Yük.",
+    "Müşteri Söz.Doğan Yük.",
+    "Gelecek Aylara Ait Gelirler",
+    "Gelecek Yıllara Ait Gelirler",
+]
+
+_SPORT_CLUB_BASE_FLAG = (
+    "Sport Club V1: futbol kulubu finansallari standart service modeli "
+    "yerine sektor uyarli modelle hesaplandi."
+)
+_SPORT_CLUB_PIO_FLAG = (
+    "Sport Club V1: klasik Piotroski futbol kulubu finansallarina "
+    "uygulanmadi."
+)
+_SPORT_CLUB_VALUATION_FLAG = (
+    "Sport Club V1: P/E negatif karlilik nedeniyle kullanilmadi; "
+    "valuation P/B ile sinirli hesaplandi."
+)
+_SPORT_CLUB_TRANSFER_FLAG = (
+    "Sport Club V1: transfer/yayin/sponsorluk gelirleri ayri satir "
+    "olarak ayristirilamadigi icin confidence sinirlidir."
+)
+_SPORT_CLUB_OCF_MISS_FLAG = (
+    "Sport Club V1: OCF satiri yakalanamadi; cash quality FCF agirlikli hesaplandi."
+)
+_SPORT_CLUB_DEFERRED_MISS_FLAG = (
+    "Sport Club V1: ertelenmis gelir / pesin tahsilat satiri yakalanamadi."
+)
+_SPORT_CLUB_DEFERRED_ZERO_FLAG = (
+    "Sport Club V1: ertelenmis gelir satiri 0 gorunuyor; siniflandirma farki olabilir."
+)
+_SPORT_CLUB_DEFERRED_HIGH_FLAG = (
+    "Sport Club V1: ertelenmis gelir yuku yuksek."
+)
+_SPORT_CLUB_NEG_EQ_HISTORY_FLAG = (
+    "Sport Club V1: negatif ozkaynak gecmisi tespit edildi."
+)
+_SPORT_CLUB_NEG_EQ_CURRENT_FLAG = (
+    "Sport Club V1: negatif ozkaynak tespit edildi; skor yuksek yapisal risk "
+    "altinda hesaplandi."
+)
+_SPORT_CLUB_FCF_NEG_FLAG = (
+    "Sport Club V1: FCF son donemlerde negatif seyrediyor."
+)
+_SPORT_CLUB_CR_LOW_FLAG = (
+    "Sport Club V1: yuksek kisa vadeli likidite riski."
+)
+
 # P/B skor parametreleri
 _IT_PB_DEEP_DISCOUNT = 0.3   # altında → floor skor + flag
 _IT_PB_DISCOUNT_CAP  = 0.5   # altında → skor 5.0'a cap (aşırı düşük P/B otomatik iyi sayılmaz)
@@ -993,7 +1055,9 @@ class FundamentalEngine:
 
         # ── Service Operational özel yolu ───────────────────────────────────
         if sg == "service_operational":
-            return self._calculate_service_operational(ticker, sg, flags)
+            return self._calculate_service_operational(
+                ticker, sg, flags, sector_profile=sector_profile
+            )
 
         # ── Technology Operational özel yolu ────────────────────────────────
         if sg == "technology_operational":
@@ -7323,9 +7387,10 @@ class FundamentalEngine:
 
     def _calculate_service_operational(
         self,
-        ticker:       str,
-        sector_group: str,
-        flags:        List[str],
+        ticker:         str,
+        sector_group:   str,
+        flags:          List[str],
+        sector_profile: Optional[str] = None,
     ) -> FundamentalResult:
         """Service Operational V1 modeli (havacilik, perakende, saglik, turizm vb.).
 
@@ -7335,7 +7400,7 @@ class FundamentalEngine:
         Growth: OI YoY primary; NI YoY kullanilmaz.
         Stability: OI bazli (NI degil).
         Cash flow: OCF bazli.
-        Spor kulupleri: guard ile Ozel Durum.
+        Spor kulupleri: sport_club modeline yonlendirilir.
         """
         data = self._fetch_data(ticker, sector_group, flags)
         if data is None:
@@ -7376,25 +7441,16 @@ class FundamentalEngine:
                 ticker, sector_group, flags, "zorunlu metrikler eksik"
             )
 
-        # ── Spor kulübü guard ─────────────────────────────────────────────────
-        if isyat and self._service_sport_guard(df, bs):
-            flags.append(_SERVICE_SPORT_FLAG)
-            return FundamentalResult(
-                ticker=ticker,
-                financial_score=None,
-                financial_score_label="Veri Yetersiz",
-                financial_score_quality=0.0,
-                subscores=FundamentalSubscores(),
-                piotroski=PiotroskiResult(
-                    score=None, normalized=None, calculated_criteria=0,
-                    total_criteria=9, coverage=0.0, confidence="not_applicable",
-                    applicability="not_applicable", missing_criteria=[], details={},
-                ),
-                financial_flags=flags,
-                explanation="Finansal tablo verisiyle degerlendirildi.",
-                sector_group=sector_group,
-                data_source=data.get("data_source", "isyatirim_quarterly"),
-                period=data.get("period"),
+        # ── Spor kulübü → _calculate_sport_club route'una yönlendir ──────────
+        # sector_profile="sport_club" ile açıkça belirtilmişse VEYA
+        # sport_guard tetikleniyorsa (negatif equity/OI yapısı) sport_club modeli.
+        if sector_profile == "sport_club" or (isyat and self._service_sport_guard(df, bs)):
+            return self._calculate_sport_club(
+                ticker,
+                sector_group,
+                sector_profile or "sport_club",
+                flags,
+                data,
             )
 
         # ── Negatif özkaynak guard ────────────────────────────────────────────
@@ -8289,6 +8345,475 @@ class FundamentalEngine:
                 data_source=pre_data.get("data_source", "isyatirim_quarterly"),
                 period=pre_data.get("period"),
             )
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Sport Club V1 Model
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _calculate_sport_club(
+        self,
+        ticker:         str,
+        sector_group:   str,
+        sector_profile: str,
+        flags:          List[str],
+        data:           dict,
+    ) -> FundamentalResult:
+        """Sport Club V1: BJKAS, FENER, GSRAY, TSPOR gibi futbol kulupler.
+
+        Alt skorlar (toplam 100%):
+          revenue_stability 30%  | structural_risk  30%
+          cash_quality      20%  | deferred_load    10%  | valuation 10%
+        Piotroski: not_applicable.
+        P/E: not_applicable (NI negatif). P/B sınırlı valuation.
+        """
+        try:
+            df    = data["is_"]   # isyatirim: BS+IS+CF aynı df
+            bs    = data["bs"]
+            info  = data.get("info") or {}
+            n_per = data.get("n_periods", df.shape[1] if df is not None else 0)
+
+            # ── Zorunlu flagler ───────────────────────────────────────────────
+            flags.append(_SPORT_CLUB_BASE_FLAG)
+            flags.append(_SPORT_CLUB_PIO_FLAG)
+            flags.append(_SPORT_CLUB_VALUATION_FLAG)
+            flags.append(_SPORT_CLUB_TRANSFER_FLAG)
+
+            # ── Zorunlu metrikler ─────────────────────────────────────────────
+            equity       = _get_row(bs, _EQUITY_KEYS)
+            total_assets = _get_row(bs, _TOTAL_ASSETS_KEYS)
+            revenue_ttm  = _iy_ttm_sum(df, _REVENUE_KEYS, n=4, min_valid=2)
+
+            if equity is None or total_assets is None:
+                flags.append(
+                    "Sport Club V1: zorunlu metrikler eksik "
+                    "(equity / total_assets); skor uretilemedi."
+                )
+                return FundamentalResult(
+                    ticker=ticker,
+                    financial_score=None,
+                    financial_score_label="Veri Yetersiz",
+                    financial_score_quality=0.0,
+                    subscores=FundamentalSubscores(),
+                    piotroski=PiotroskiResult(
+                        score=None, normalized=None, calculated_criteria=0,
+                        total_criteria=9, coverage=0.0, confidence="not_applicable",
+                        applicability="not_applicable", missing_criteria=[], details={},
+                    ),
+                    financial_flags=flags,
+                    explanation="Finansal tablo verisiyle degerlendirildi.",
+                    sector_group=sector_group,
+                    data_source=data.get("data_source", "isyatirim_quarterly"),
+                    period=data.get("period"),
+                )
+
+            if revenue_ttm is None:
+                flags.append(
+                    "Sport Club V1: zorunlu metrikler eksik "
+                    "(revenue < 2 gecerli donem); skor uretilemedi."
+                )
+                return self._empty_result(ticker, sector_group, flags, "revenue verisi yetersiz")
+
+            # ── Negatif özkaynak geçmişi ──────────────────────────────────────
+            neg_eq_history = 0
+            for i in range(min(8, bs.shape[1])):
+                v = _get_row_period(bs, _EQUITY_KEYS, i)
+                if v is not None and v < 0:
+                    neg_eq_history += 1
+
+            neg_eq_recent = 0
+            for i in range(min(2, bs.shape[1])):
+                v = _get_row_period(bs, _EQUITY_KEYS, i)
+                if v is not None and v < 0:
+                    neg_eq_recent += 1
+
+            if neg_eq_history > 0:
+                flags.append(_SPORT_CLUB_NEG_EQ_HISTORY_FLAG)
+            if neg_eq_recent > 0:
+                flags.append(_SPORT_CLUB_NEG_EQ_CURRENT_FLAG)
+
+            # ─── Cap inputs: FCF, CR ve revenue özeti (cap kuralları için) ───
+            _fcf_8_raw = [_get_row_period(df, _FCF_KEYS, i) for i in range(min(8, df.shape[1]))]
+            _fcf_8_clean = [v for v in _fcf_8_raw if v is not None]
+            _fcf_4_clean = [v for v in _fcf_8_raw[:4] if v is not None]
+            _fcf_recent_sum = sum(_fcf_4_clean) if _fcf_4_clean else None
+            _fcf_pos_count  = sum(1 for v in _fcf_8_clean if v > 0)
+
+            _ca = _get_row(bs, _CURRENT_ASSETS_KEYS)
+            _cl = _get_row(bs, _CURRENT_LIAB_KEYS)
+            _cr = (_ca / _cl) if (_ca is not None and _cl is not None and _cl > 0) else None
+
+            _rev0 = _get_row_period(df, _REVENUE_KEYS, 0)
+
+            # ═════════════════════════════════════════════════════════════════
+            # 1. Revenue Stability — 30%
+            # ═════════════════════════════════════════════════════════════════
+            rev_stab_s = self._sport_revenue_stability(df, revenue_ttm, n_per)
+
+            # ═════════════════════════════════════════════════════════════════
+            # 2. Structural Risk — 30%
+            # ═════════════════════════════════════════════════════════════════
+            struct_s = self._sport_structural_risk(
+                df, bs, equity, total_assets, neg_eq_history, flags
+            )
+
+            # ═════════════════════════════════════════════════════════════════
+            # 3. Cash Quality — 25%
+            # ═════════════════════════════════════════════════════════════════
+            cash_s, ocf_available = self._sport_cash_quality(df, revenue_ttm, flags)
+
+            # ═════════════════════════════════════════════════════════════════
+            # 4. Deferred Load — 10%
+            # ═════════════════════════════════════════════════════════════════
+            def_s, def_available, def_ratio = self._sport_deferred_load(
+                bs, revenue_ttm, flags
+            )
+
+            # ═════════════════════════════════════════════════════════════════
+            # 5. Valuation — 5% (sadece P/B, üst sınır 7.0)
+            # ═════════════════════════════════════════════════════════════════
+            pb = info.get("priceToBook")
+            if pb is not None:
+                try:
+                    pb = float(pb)
+                except (TypeError, ValueError):
+                    pb = None
+            pb_available = pb is not None and np.isfinite(pb) and pb > 0
+            val_s = _normalize(pb, 0.50, 5.00, reverse=True) if pb_available else None
+            if val_s is not None:
+                val_s = min(val_s, 7.0)   # P/B düşük = max 7.0 (spor kulübünde sınırlı sinyal)
+                if _fcf_recent_sum is not None and _fcf_recent_sum < 0:
+                    val_s = min(val_s, 5.0)  # FCF negatifse valuation cap 5.0
+
+            # ─── FCF mevcutluk kontrolü (quality için) ────────────────────────
+            fcf_available = len(_fcf_4_clean) > 0
+
+            # ─── Quality ────────────────────────────────────────────────────
+            quality = 0.70
+            if fcf_available:    quality += 0.10
+            if pb_available:     quality += 0.10
+            if ocf_available:    quality += 0.05
+            if def_available:    quality += 0.05
+            if neg_eq_recent > 0:  quality -= 0.15
+            if n_per < 8:          quality -= 0.10
+            if def_ratio is not None and def_ratio > 0.50:
+                quality -= 0.05
+            if not ocf_available:  quality -= 0.05
+            quality = round(max(0.0, min(1.0, quality)), 2)
+
+            # ─── Ağırlıklı final skor ────────────────────────────────────────
+            scored_parts: List[Tuple[float, float]] = []
+            if rev_stab_s is not None:
+                scored_parts.append((rev_stab_s, _SPORT_CLUB_WEIGHTS["revenue_stability"]))
+            if struct_s is not None:
+                scored_parts.append((struct_s, _SPORT_CLUB_WEIGHTS["structural_risk"]))
+            if cash_s is not None:
+                scored_parts.append((cash_s, _SPORT_CLUB_WEIGHTS["cash_quality"]))
+            if def_s is not None:
+                scored_parts.append((def_s, _SPORT_CLUB_WEIGHTS["deferred_load"]))
+            if val_s is not None:
+                scored_parts.append((val_s, _SPORT_CLUB_WEIGHTS["valuation"]))
+
+            if not scored_parts:
+                flags.append("Sport Club V1: hicbir alt skor hesaplanamadi.")
+                return self._empty_result(ticker, sector_group, flags, "alt skor yok")
+
+            total_w = sum(w for _, w in scored_parts)
+            final_score = sum(s * w for s, w in scored_parts) / total_w
+            final_score = round(max(0.0, min(10.0, final_score)), 2)
+
+            # ─── Score caps ──────────────────────────────────────────────────
+            score_cap = 10.0
+            cap_reasons: List[str] = []
+
+            # FCF caps
+            if _fcf_recent_sum is not None and _fcf_recent_sum < 0:
+                score_cap = min(score_cap, 6.0)
+                cap_reasons.append("FCF_NEG_SON4_CAP6.0")
+            if _fcf_8_clean and _fcf_pos_count <= 2:
+                score_cap = min(score_cap, 5.5)
+                cap_reasons.append("FCF_POS_LE2_CAP5.5")
+
+            # Current ratio caps
+            if _cr is not None:
+                if _cr < 0.35:
+                    score_cap = min(score_cap, 5.5)
+                    cap_reasons.append("CR_LT035_CAP5.5")
+                elif _cr < 0.50:
+                    score_cap = min(score_cap, 6.0)
+                    cap_reasons.append("CR_LT050_CAP6.0")
+
+            # Low revenue cap
+            if _rev0 is not None and _rev0 < 3e9:
+                score_cap = min(score_cap, 5.0)
+                cap_reasons.append("LOW_REV_3B_CAP5.0")
+
+            final_score_before_cap = final_score
+            if score_cap < 10.0:
+                final_score = round(min(final_score, score_cap), 2)
+                if final_score < final_score_before_cap:
+                    flags.append(
+                        f"Sport Club V1: skor cap uygulandi "
+                        f"({', '.join(cap_reasons)}); "
+                        f"onceki={final_score_before_cap:.2f} -> sonraki={final_score:.2f}."
+                    )
+
+            if quality < 0.40:
+                flags.append(
+                    f"Sport Club V1: veri kalitesi dusuk "
+                    f"(quality={quality:.2f} < 0.40); skor Veri Yetersiz."
+                )
+                final_score = None
+
+            # ─── Piotroski: not_applicable ───────────────────────────────────
+            piotr = PiotroskiResult(
+                score=None, normalized=None, calculated_criteria=0,
+                total_criteria=9, coverage=0.0, confidence="not_applicable",
+                applicability="not_applicable", missing_criteria=[], details={},
+            )
+
+            # ─── Sub-scores (mevcut FundamentalSubscores alanlarına map) ─────
+            subscores = FundamentalSubscores(
+                profitability = _r2(rev_stab_s),   # revenue_stability
+                balance_sheet = _r2(struct_s),      # structural_risk
+                cash_flow     = _r2(cash_s),        # cash_quality
+                stability     = _r2(def_s),         # deferred_load
+                valuation     = _r2(val_s),
+                growth        = None,
+                piotroski     = None,
+            )
+
+            return FundamentalResult(
+                ticker=ticker,
+                financial_score=final_score,
+                financial_score_label=self._label(final_score),
+                financial_score_quality=quality,
+                subscores=subscores,
+                piotroski=piotr,
+                financial_flags=flags,
+                explanation="Finansal tablo verisiyle degerlendirildi.",
+                sector_group=sector_group,
+                data_source=data.get("data_source", "isyatirim_quarterly"),
+                period=data.get("period"),
+            )
+
+        except Exception as e:
+            logger.warning(f"[fundamental/sport_club] {ticker}: {e}")
+            flags.append(f"Sport Club V1: hesaplama hatasi: {str(e)[:60]}")
+            return self._empty_result(ticker, sector_group, flags, "hesaplama hatasi")
+
+    def _sport_revenue_stability(
+        self,
+        df:          pd.DataFrame,
+        revenue_ttm: float,
+        n_per:       int,
+    ) -> Optional[float]:
+        """Revenue stability alt skoru: YoY trend (45%) + CV (45%) + scale (10%)."""
+        try:
+            scored: List[Tuple[float, float]] = []
+
+            # ── YoY: col[0] (mevcut dönem) vs col[4] (bir yıl önce aynı dönem)
+            rev0 = _get_row_period(df, _REVENUE_KEYS, 0)
+            rev4 = _get_row_period(df, _REVENUE_KEYS, 4)
+            if rev0 is not None and rev4 is not None and rev4 != 0:
+                yoy = (rev0 - rev4) / abs(rev4)
+                s = _normalize(yoy, -0.20, 0.60)
+                if s is not None:
+                    s = min(s, 8.0)
+                    scored.append((s, 0.45))
+
+            # ── Revenue CV: 3 TTM penceresi (cols 0-3, 4-7, 8-11)
+            ttm_vals: List[float] = []
+            for offset in (0, 4, 8):
+                if offset + 4 <= n_per:
+                    total = 0.0
+                    cnt   = 0
+                    for i in range(offset, offset + 4):
+                        v = _get_row_period(df, _REVENUE_KEYS, i)
+                        if v is not None:
+                            total += v
+                            cnt += 1
+                    if cnt >= 2:
+                        ttm_vals.append(total)
+
+            if len(ttm_vals) >= 2:
+                arr  = np.array(ttm_vals, dtype=float)
+                mean_ = float(np.mean(arr))
+                cv   = float(np.std(arr)) / abs(mean_) if mean_ != 0 else 2.0
+                s = _normalize(cv, 0.0, 2.0, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.45))
+
+            # ── Revenue scale (TTM, milyar TL) — azaltıldı 20%→10%
+            if revenue_ttm > 0:
+                s = _normalize(revenue_ttm / 1e9, 0.5, 15.0)
+                if s is not None:
+                    scored.append((s, 0.10))
+
+            if not scored:
+                return None
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2)
+        except Exception as e:
+            logger.warning(f"[fundamental/sport_club] revenue_stability: {e}")
+            return None
+
+    def _sport_structural_risk(
+        self,
+        df:             pd.DataFrame,
+        bs:             pd.DataFrame,
+        equity:         float,
+        total_assets:   float,
+        neg_eq_history: int,
+        flags:          List[str],
+    ) -> Optional[float]:
+        """Structural risk alt skoru: equity/assets (25%) + neg-eq (25%) + debt (25%) + CR (25%)."""
+        try:
+            scored: List[Tuple[float, float]] = []
+
+            # ── Equity / Assets [-0.50, 0.40] — ağırlık 35%→25%
+            ea = _safe_div(equity, total_assets)
+            s = _normalize(ea, -0.50, 0.40)
+            if s is not None:
+                scored.append((s, 0.25))
+
+            # ── Negatif özkaynak geçmişi (son 8 dönem)
+            max_checked = min(8, bs.shape[1])
+            neg_ratio   = neg_eq_history / max_checked if max_checked > 0 else 0.0
+            s = _normalize(neg_ratio, 0.0, 1.0, reverse=True)
+            if s is not None:
+                scored.append((s, 0.25))
+
+            # ── Debt / Assets: KV+UV Finansal Borçlar toplamı / total_assets
+            fin_debt = _sum_key_latest(df, "Finansal Borçlar")
+            if fin_debt is None:
+                fin_debt = _sum_key_latest(bs, "Finansal Borçlar")
+            if fin_debt is not None and total_assets > 0:
+                da = fin_debt / total_assets
+                s = _normalize(da, 0.0, 1.0, reverse=True)
+                if s is not None:
+                    scored.append((s, 0.25))
+
+            # ── Current Ratio [0.20, 1.50] — ağırlık 15%→25% (kısa vadeli likidite kritik)
+            ca = _get_row(bs, _CURRENT_ASSETS_KEYS)
+            cl = _get_row(bs, _CURRENT_LIAB_KEYS)
+            if ca is not None and cl is not None and cl > 0:
+                cr = ca / cl
+                if cr < 0.50:
+                    flags.append(_SPORT_CLUB_CR_LOW_FLAG)
+                s = _normalize(cr, 0.20, 1.50)
+                if s is not None:
+                    scored.append((s, 0.25))
+
+            if not scored:
+                return None
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2)
+        except Exception as e:
+            logger.warning(f"[fundamental/sport_club] structural_risk: {e}")
+            return None
+
+    def _sport_cash_quality(
+        self,
+        df:          pd.DataFrame,
+        revenue_ttm: Optional[float],
+        flags:       List[str],
+    ) -> Tuple[Optional[float], bool]:
+        """Cash quality alt skoru ve OCF_available döndürür."""
+        try:
+            scored: List[Tuple[float, float]] = []
+
+            # ── FCF positive ratio (son 8 dönem)
+            fcf_raw: List[Optional[float]] = [
+                _get_row_period(df, _FCF_KEYS, i)
+                for i in range(min(8, df.shape[1]))
+            ]
+            fcf_vals = [v for v in fcf_raw if v is not None]
+
+            if fcf_vals:
+                pos_ratio = sum(1 for v in fcf_vals if v > 0) / len(fcf_vals)
+                s = _normalize(pos_ratio, 0.0, 1.0)
+                if s is not None:
+                    scored.append((s, 0.40))
+
+                # ── FCF trend: son 4 vs önceki 4
+                recent_fcf = [v for v in fcf_vals[:4]]
+                prior_fcf  = [v for v in fcf_vals[4:8]]
+                if len(recent_fcf) >= 4 and len(prior_fcf) >= 4:
+                    recent_sum = sum(recent_fcf)
+                    prior_sum  = sum(prior_fcf)
+                    if prior_sum != 0:
+                        if prior_sum < 0 and recent_sum < 0:
+                            # İkisi de negatifse: daha az negatif = iyileşme
+                            trend = (prior_sum - recent_sum) / abs(prior_sum)
+                        else:
+                            trend = (recent_sum - prior_sum) / abs(prior_sum)
+                        s = _normalize(trend, -0.50, 0.50)
+                        if s is not None:
+                            s = min(s, 8.0)
+                            scored.append((s, 0.30))
+
+                # FCF toplamı negatifse flag
+                if len(recent_fcf) >= 4 and sum(recent_fcf) < 0:
+                    flags.append(_SPORT_CLUB_FCF_NEG_FLAG)
+
+            # ── OCF / Revenue
+            ocf_ttm = _iy_ttm_sum(df, _OPERATING_CF_KEYS, n=4, min_valid=2)
+            ocf_available = ocf_ttm is not None
+
+            if ocf_available and revenue_ttm and revenue_ttm > 0:
+                ocf_rev = _safe_div(ocf_ttm, revenue_ttm)
+                s = _normalize(ocf_rev, -0.20, 0.30)
+                if s is not None:
+                    scored.append((s, 0.30))
+            else:
+                flags.append(_SPORT_CLUB_OCF_MISS_FLAG)
+
+            if not scored:
+                return None, ocf_available
+            tw = sum(w for _, w in scored)
+            return round(sum(s * w for s, w in scored) / tw, 2), ocf_available
+
+        except Exception as e:
+            logger.warning(f"[fundamental/sport_club] cash_quality: {e}")
+            return None, False
+
+    def _sport_deferred_load(
+        self,
+        bs:          pd.DataFrame,
+        revenue_ttm: Optional[float],
+        flags:       List[str],
+    ) -> Tuple[Optional[float], bool, Optional[float]]:
+        """Deferred load alt skoru, mevcutluk ve oran döndürür."""
+        try:
+            total_deferred = 0.0
+            found_any = False
+            for key in _SPORT_DEFERRED_REVENUE_KEYS:
+                v = _sum_key_latest(bs, key)
+                if v is not None and v > 0:
+                    total_deferred += v
+                    found_any = True
+
+            if not found_any:
+                flags.append(_SPORT_CLUB_DEFERRED_MISS_FLAG)
+                return None, False, None
+
+            if total_deferred == 0:
+                flags.append(_SPORT_CLUB_DEFERRED_ZERO_FLAG)
+                return 10.0, True, 0.0
+
+            if revenue_ttm is None or revenue_ttm <= 0:
+                return None, True, None
+
+            ratio = total_deferred / revenue_ttm
+            if ratio > 0.50:
+                flags.append(_SPORT_CLUB_DEFERRED_HIGH_FLAG)
+
+            s = _normalize(ratio, 0.0, 1.0, reverse=True)
+            return (_r2(s), True, ratio) if s is not None else (None, True, ratio)
+
+        except Exception as e:
+            logger.warning(f"[fundamental/sport_club] deferred_load: {e}")
+            return None, False, None
 
     # ── Boş sonuç ──────────────────────────────────────────────────────────
 

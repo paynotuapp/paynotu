@@ -2696,7 +2696,7 @@
       "kap_alt_sektor": "SPOR FAALİYETLERİ EĞLENCE VE OYUN FAALİYETLERİ",
       "paynotu_sector_group": "service_operational",
       "financial_model": "service_operational",
-      "sector_profile": "service",
+      "sector_profile": "sport_club",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
@@ -5906,7 +5906,7 @@
       "kap_alt_sektor": "SPOR FAALİYETLERİ EĞLENCE VE OYUN FAALİYETLERİ",
       "paynotu_sector_group": "service_operational",
       "financial_model": "service_operational",
-      "sector_profile": "service",
+      "sector_profile": "sport_club",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
@@ -6886,7 +6886,7 @@
       "kap_alt_sektor": "SPOR FAALİYETLERİ EĞLENCE VE OYUN FAALİYETLERİ",
       "paynotu_sector_group": "service_operational",
       "financial_model": "service_operational",
-      "sector_profile": "service",
+      "sector_profile": "sport_club",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
@@ -14944,7 +14944,7 @@
       "kap_alt_sektor": "SPOR FAALİYETLERİ EĞLENCE VE OYUN FAALİYETLERİ",
       "paynotu_sector_group": "service_operational",
       "financial_model": "service_operational",
-      "sector_profile": "service",
+      "sector_profile": "sport_club",
       "primary_source": "isyatirim_group_1",
       "fallback_sources": [
         "yfinance_quarterly",
