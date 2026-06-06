@@ -1,6 +1,6 @@
 {
   "meta": {
-    "total_csv": 630,
+    "total_csv": 611,
     "duplicates": [],
     "empty_symbol": 0,
     "empty_main_sector": 0,
@@ -8,20 +8,20 @@
     "unknown_sector_group": 0,
     "manual_review": 4,
     "by_group": {
-      "financial_special": 31,
+      "financial_special": 23,
       "energy_utility": 40,
       "gyo": 53,
       "industrial": 312,
       "real_estate_operational": 4,
       "insurance": 6,
       "holding": 55,
-      "bank": 27,
+      "bank": 16,
       "technology_operational": 46,
       "service_operational": 39,
       "investment_trust": 17
     },
     "by_main_sector": {
-      "MALİ KURULUŞLAR": 189,
+      "MALİ KURULUŞLAR": 170,
       "ELEKTRİK GAZ VE SU": 39,
       "İMALAT": 248,
       "GAYRİMENKUL FAALİYETLERİ": 4,
@@ -110,32 +110,6 @@
         "borsapy_yearly"
       ],
       "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "ACP",
-      "company_name": "A1 CAPİTAL YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -966,32 +940,6 @@
         "isyatirim_group_1",
         "yfinance_quarterly",
         "borsapy_yearly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "ALK",
-      "company_name": "ALBARAKA TÜRK KATILIM BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
       ],
       "routing_note": "",
       "manual_review_required": false,
@@ -5926,32 +5874,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "FIN",
-      "company_name": "QNB BANK A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "FLAP",
       "company_name": "FLAP KONGRE TOPLANTI HİZMETLERİ OTOMOTİV VE TURİZM A.Ş.",
       "kap_ana_sektor": "İDARİ VE DESTEK HİZMET FAALİYETLERİ",
@@ -6462,32 +6384,6 @@
         "borsapy_yearly"
       ],
       "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "GLB",
-      "company_name": "GLOBAL MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -7370,32 +7266,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "ICB",
-      "company_name": "ICBC TURKEY BANK A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "ICBCT",
       "company_name": "ICBC TURKEY BANK A.Ş.",
       "kap_ana_sektor": "MALİ KURULUŞLAR",
@@ -8194,58 +8064,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "IYF",
-      "company_name": "İNFO YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "IYM",
-      "company_name": "İŞ YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "IZENR",
       "company_name": "İZDEMİR ENERJİ ELEKTRİK ÜRETİM A.Ş.",
       "kap_ana_sektor": "ELEKTRİK GAZ VE SU",
@@ -8808,32 +8626,6 @@
         "isyatirim_group_1",
         "yfinance_quarterly",
         "borsapy_yearly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "KLN",
-      "company_name": "TÜRKİYE KALKINMA VE YATIRIM BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
       ],
       "routing_note": "",
       "manual_review_required": false,
@@ -11282,32 +11074,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "OMD",
-      "company_name": "OSMANLI YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "ONCSM",
       "company_name": "ONCOSEM ONKOLOJİK SİSTEMLER SANAYİ VE TİCARET A.Ş.",
       "kap_ana_sektor": "İMALAT",
@@ -11534,32 +11300,6 @@
         "borsapy_yearly"
       ],
       "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "OYA",
-      "company_name": "OYAK YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -13226,32 +12966,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "SEK",
-      "company_name": "ŞEKERBANK T.A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "SEKFK",
       "company_name": "ŞEKER FİNANSAL KİRALAMA A.Ş.",
       "kap_ana_sektor": "MALİ KURULUŞLAR",
@@ -13502,32 +13216,6 @@
         "borsapy_yearly"
       ],
       "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "SKY",
-      "company_name": "ŞEKER YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -14340,32 +14028,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "TGB",
-      "company_name": "TÜRKİYE GARANTİ BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "TGSAS",
       "company_name": "TGS DIŞ TİCARET A.Ş.",
       "kap_ana_sektor": "TOPTAN VE PERAKENDE TİCARET",
@@ -14392,32 +14054,6 @@
       "sector_verified": true
     },
     {
-      "symbol": "THL",
-      "company_name": "TÜRKİYE HALK BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
       "symbol": "THYAO",
       "company_name": "TÜRK HAVA YOLLARI A.O.",
       "kap_ana_sektor": "ULAŞTIRMA VE DEPOLAMA",
@@ -14434,32 +14070,6 @@
         "isyatirim_group_1",
         "yfinance_quarterly",
         "borsapy_yearly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "TIB",
-      "company_name": "TÜRKİYE İŞ BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
       ],
       "routing_note": "",
       "manual_review_required": false,
@@ -14644,32 +14254,6 @@
         "borsapy_yearly"
       ],
       "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "TRA",
-      "company_name": "TERA YATIRIM MENKUL DEĞERLER A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "ARACI KURUMLAR",
-      "paynotu_sector_group": "financial_special",
-      "financial_model": "financial_special",
-      "sector_profile": "broker_operational",
-      "primary_source": "isyatirim_group_1",
-      "fallback_sources": [
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_1",
-        "yfinance_quarterly",
-        "borsapy_yearly"
-      ],
-      "routing_note": "SPK aracı kurum; isyatirim_group_1 (XI_29) veri veriyor",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -14876,32 +14460,6 @@
         "isyatirim_group_1",
         "yfinance_quarterly",
         "borsapy_yearly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "TSK",
-      "company_name": "TÜRKİYE SINAİ KALKINMA BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
       ],
       "routing_note": "",
       "manual_review_required": false,
@@ -15164,32 +14722,6 @@
         "yfinance_quarterly"
       ],
       "routing_note": "insurance model V2 mapping gerekebilir",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "TVB",
-      "company_name": "TÜRKİYE VAKIFLAR BANKASI T.A.O.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "routing_note": "",
       "manual_review_required": false,
       "match_level": "sub_sector",
       "sector_source": "KAP",
@@ -16036,32 +15568,6 @@
         "isyatirim_group_1",
         "yfinance_quarterly",
         "borsapy_yearly"
-      ],
-      "routing_note": "",
-      "manual_review_required": false,
-      "match_level": "sub_sector",
-      "sector_source": "KAP",
-      "sector_source_file": "sektorler.pdf",
-      "sector_source_version": "kap_sektor_map_2026_05",
-      "sector_verified": true
-    },
-    {
-      "symbol": "YKB",
-      "company_name": "YAPI VE KREDİ BANKASI A.Ş.",
-      "kap_ana_sektor": "MALİ KURULUŞLAR",
-      "kap_alt_sektor": "BANKALAR",
-      "paynotu_sector_group": "bank",
-      "financial_model": "bank",
-      "sector_profile": "banking",
-      "primary_source": "isyatirim_group_2",
-      "fallback_sources": [
-        "borsapy_banking",
-        "yfinance_quarterly"
-      ],
-      "financial_source_priority": [
-        "isyatirim_group_2",
-        "borsapy_banking",
-        "yfinance_quarterly"
       ],
       "routing_note": "",
       "manual_review_required": false,
