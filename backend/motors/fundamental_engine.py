@@ -613,9 +613,14 @@ _FCF_KEYS = [
 ]
 # Banka satır adları
 _BANK_TOTAL_ASSETS_KEYS = ["AKTİF TOPLAMI", "PASİF TOPLAMI"]
-_BANK_EQUITY_KEYS       = ["XVI. ÖZKAYNAKLAR", "ÖZKAYNAKLAR"]
+_BANK_EQUITY_KEYS       = [
+    "XVI. ÖZKAYNAKLAR",
+    "ÖZKAYNAKLAR",
+    "ÖZKAYNAK",                         # katılım bankası (ALBRK)
+]
 _BANK_NET_PROFIT_KEYS   = [
     "XXIII. NET DÖNEM KARI/ZARARI (XVII+XXII)",
+    "XVIII. NET DÖNEM KARI/ZARARI (XVII+XXII)",  # katılım bankası (ALBRK)
     "XVI. SÜRDÜRÜLENFAALİYETLER DÖNEM NET K/Z",
     "16.4.2 Dönem Net Kar/Zararı",
 ]
@@ -623,6 +628,7 @@ _BANK_INTEREST_INCOME_KEYS = ["I. FAİZ GELİRLERİ", "FAİZ GELİRLERİ"]
 _BANK_NET_INTEREST_KEYS    = [
     "III. NET FAİZ GELİRİ/GİDERİ (I - II)",
     "NET FAİZ GELİRİ/GİDERİ",
+    "III. NET KAR PAYI GELİRİ/GİDERİ (I-II)",   # katılım bankası (ALBRK)
 ]
 _BANK_TOTAL_INCOME_KEYS = [
     "VIII. FAALİYET GELİRLERİ/GİDERLERİ TOPLAMI (III+IV+V+VI+VII)",
