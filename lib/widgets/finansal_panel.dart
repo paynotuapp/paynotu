@@ -95,8 +95,6 @@ class FinansalPanel extends StatelessWidget {
       _num(hisseData['rsi14']) ??
       _num(_motorDetay['rsi_14']);
 
-  double? get _finansalTaban => null;
-
   String? get _kaynak =>
       _str(_rootTemel['kaynak']) ??
       _str(_motorTemel['kaynak']) ??
@@ -108,16 +106,6 @@ class FinansalPanel extends StatelessWidget {
       _str(_motorTemel['period']) ??
       _str(hisseData['temel_period']) ??
       _str(_motorDetay['temel_period']);
-
-  int? get _spekGun {
-    final eski = hisseData['spekulatif_gun'];
-    if (eski is num) return eski.toInt();
-
-    final hard = _motorDetay['spek_gun_hard'];
-    if (hard is num) return hard.toInt();
-
-    return null;
-  }
 
   double _normRoe(double? v) {
     if (v == null) return 0.5;
@@ -356,64 +344,14 @@ class FinansalPanel extends StatelessWidget {
             const SizedBox(height: 14),
             _RsiKart(rsi: _rsi14!),
           ],
-          if (_finansalTaban != null || _spekGun != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  if (_finansalTaban != null)
-                    Expanded(
-                      child: _BilgiSatir(
-                        etiket: 'Anomali Skoru',
-                        deger: _finansalTaban!.toStringAsFixed(2),
-                      ),
-                    ),
-                  if (_finansalTaban != null && _spekGun != null)
-                    Container(
-                      width: 1,
-                      height: 28,
-                      color: cs.outlineVariant,
-                      margin: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                  if (_spekGun != null)
-                    Expanded(
-                      child: _BilgiSatir(
-                        etiket: 'Anomali Aktivitesi',
-                        deger: '$_spekGun gün',
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
           if (_kaynak != null || _period != null) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 12,
-                  color: cs.onSurfaceVariant,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    [
-                      if (_kaynak != null) 'Kaynak: $_kaynak',
-                      if (_period != null) 'Dönem: $_period',
-                    ].join('  ·  '),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
+            Text(
+              [
+                if (_kaynak != null) 'Kaynak: $_kaynak',
+                if (_period != null) 'Dönem: $_period',
+              ].join('  ·  '),
+              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
             ),
           ],
 
@@ -439,17 +377,35 @@ class _FundamentalSkorBolumu extends StatelessWidget {
     return cs.error;
   }
 
+  static String _normalizePeriod(String raw) {
+    final m = RegExp(r'^(\d{4})\s+(.+)$').firstMatch(raw.trim());
+    if (m == null) return raw.trim();
+    final year = m.group(1)!;
+    switch (m.group(2)!.trim()) {
+      case '3 Aylık':  return '$year Q1';
+      case '6 Aylık':  return '$year Q2';
+      case '9 Aylık':  return '$year Q3';
+      case '12 Aylık': return '$year FY';
+      case 'Yıllık':   return '$year FY';
+      default: return raw.trim();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     final finansalSkor      = (hisseData['finansal_skor']      as num?)?.toDouble();
     final finansalLabel     =  hisseData['finansal_skor_label'] as String?;
-    final finansalQuality   = (hisseData['finansal_skor_quality'] as num?)?.toDouble();
     final finansalSubscores =  hisseData['finansal_subscores']  as Map<String, dynamic>?;
     final piotroskiScore    = (hisseData['piotroski_score']     as num?)?.toInt();
     final finansalAciklama  =  hisseData['finansal_aciklama']   as String?;
-    final finansalFlags     =  hisseData['finansal_flags']      as List<dynamic>?;
+    final rawPeriod         = (hisseData['finansal_period']     as String?)?.trim()
+                           ?? (hisseData['financial_period']    as String?)?.trim()
+                           ?? (hisseData['period']              as String?)?.trim();
+    final finansalDonem     = (rawPeriod != null && rawPeriod.isNotEmpty)
+                              ? _normalizePeriod(rawPeriod)
+                              : null;
 
     if (finansalSkor == null &&
         (finansalSubscores == null || finansalSubscores.isEmpty) &&
@@ -521,6 +477,11 @@ class _FundamentalSkorBolumu extends StatelessWidget {
                   fontSize: 11,
                   color: cs.onSurfaceVariant,
                   fontWeight: FontWeight.w600)),
+          if (finansalDonem != null) ...[
+            const SizedBox(height: 2),
+            Text('Dönem: $finansalDonem',
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          ],
           const SizedBox(height: 4),
           for (final e in subskorAdlar.entries)
             if (finansalSubscores[e.key] != null)
@@ -583,42 +544,6 @@ class _FundamentalSkorBolumu extends StatelessWidget {
               style:
                   TextStyle(fontSize: 12, color: cs.onSurface, height: 1.5)),
         ],
-
-        // Sınırlı veri uyarısı
-        if (finansalQuality != null && finansalQuality < 0.50) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(Icons.info_outline, size: 14, color: cs.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  'Bu skor sınırlı veriyle hesaplanmıştır.',
-                  style:
-                      TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                ),
-              ),
-            ],
-          ),
-        ],
-
-        // Flags (maks 2)
-        if (finansalFlags != null && finansalFlags.isNotEmpty)
-          ...finansalFlags.take(2).map((f) => Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 14, color: cs.onSurfaceVariant),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(f.toString(),
-                          style: TextStyle(
-                              fontSize: 11, color: cs.onSurfaceVariant)),
-                    ),
-                  ],
-                ),
-              )),
 
         const SizedBox(height: 8),
       ],
@@ -857,43 +782,6 @@ class _RsiKart extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _BilgiSatir extends StatelessWidget {
-  final String etiket;
-  final String deger;
-
-  const _BilgiSatir({
-    required this.etiket,
-    required this.deger,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          etiket,
-          style: TextStyle(
-            fontSize: 10,
-            color: cs.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          deger,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: cs.onSurface,
-          ),
-        ),
-      ],
     );
   }
 }
