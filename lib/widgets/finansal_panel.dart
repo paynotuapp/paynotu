@@ -31,13 +31,6 @@ class FinansalPanel extends StatelessWidget {
 
   double? _num(dynamic v) => v is num ? v.toDouble() : null;
 
-  String? _str(dynamic v) {
-    if (v is String && v.trim().isNotEmpty) {
-      return v.trim();
-    }
-    return null;
-  }
-
   double? get _roe =>
       _num(_rootTemel['roe']) ??
       _num(_motorTemel['roe']) ??
@@ -94,18 +87,6 @@ class FinansalPanel extends StatelessWidget {
       _num(hisseData['rsi_14']) ??
       _num(hisseData['rsi14']) ??
       _num(_motorDetay['rsi_14']);
-
-  String? get _kaynak =>
-      _str(_rootTemel['kaynak']) ??
-      _str(_motorTemel['kaynak']) ??
-      _str(hisseData['temel_kaynak']) ??
-      _str(_motorDetay['temel_kaynak']);
-
-  String? get _period =>
-      _str(_rootTemel['period']) ??
-      _str(_motorTemel['period']) ??
-      _str(hisseData['temel_period']) ??
-      _str(_motorDetay['temel_period']);
 
   double _normRoe(double? v) {
     if (v == null) return 0.5;
@@ -344,17 +325,6 @@ class FinansalPanel extends StatelessWidget {
             const SizedBox(height: 14),
             _RsiKart(rsi: _rsi14!),
           ],
-          if (_kaynak != null || _period != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              [
-                if (_kaynak != null) 'Kaynak: $_kaynak',
-                if (_period != null) 'Dönem: $_period',
-              ].join('  ·  '),
-              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
-            ),
-          ],
-
           // ── Fundamental Engine Skoru ─────────────────────────────
           _FundamentalSkorBolumu(hisseData: hisseData),
 
