@@ -1,0 +1,279 @@
+{
+  "audit_date": "2026-06-04",
+  "total_csv_symbols": 611,
+  "total_firestore_hisseler": 645,
+  "total_firestore_sector_map": 630,
+  "active_union": 645,
+  "score_ok": 605,
+  "score_none": 6,
+  "exceptions": 0,
+  "green": 594,
+  "yellow": 11,
+  "red": 6,
+  "manual_review_count": 5,
+  "stale_2024_count": 0,
+  "sector_group_counts": {
+    "financial_special": 23,
+    "energy_utility": 40,
+    "gyo": 53,
+    "industrial": 312,
+    "real_estate_operational": 4,
+    "insurance": 6,
+    "holding": 55,
+    "bank": 16,
+    "technology_operational": 46,
+    "service_operational": 39,
+    "investment_trust": 17
+  },
+  "sector_profile_counts": {
+    "broker_operational": 9,
+    "energy_utility": 40,
+    "gyo": 53,
+    "industrial_general": 310,
+    "real_estate_operational": 4,
+    "insurance": 6,
+    "holding": 55,
+    "agriculture_operational_candidate": 1,
+    "banking": 16,
+    "technology": 46,
+    "service": 35,
+    "investment_trust": 17,
+    "sport_club": 4,
+    "asset_mgmt": 3,
+    "lending_operational": 11,
+    "food_beverage": 1
+  },
+  "route_stats": {
+    "broker_operational_model": {
+      "ok": 9,
+      "none": 0,
+      "exc": 0,
+      "total": 9,
+      "none_symbols": []
+    },
+    "energy_utility_model": {
+      "ok": 40,
+      "none": 0,
+      "exc": 0,
+      "total": 40,
+      "none_symbols": []
+    },
+    "gyo_model": {
+      "ok": 53,
+      "none": 0,
+      "exc": 0,
+      "total": 53,
+      "none_symbols": []
+    },
+    "industrial_model": {
+      "ok": 311,
+      "none": 1,
+      "exc": 0,
+      "total": 312,
+      "none_symbols": [
+        "MARMR"
+      ]
+    },
+    "real_estate_operational_router": {
+      "ok": 4,
+      "none": 0,
+      "exc": 0,
+      "total": 4,
+      "none_symbols": []
+    },
+    "insurance_model": {
+      "ok": 6,
+      "none": 0,
+      "exc": 0,
+      "total": 6,
+      "none_symbols": []
+    },
+    "holding_model": {
+      "ok": 54,
+      "none": 1,
+      "exc": 0,
+      "total": 55,
+      "none_symbols": [
+        "MMCAS"
+      ]
+    },
+    "bank_model": {
+      "ok": 15,
+      "none": 1,
+      "exc": 0,
+      "total": 16,
+      "none_symbols": [
+        "ISKUR"
+      ]
+    },
+    "technology_operational_model": {
+      "ok": 46,
+      "none": 0,
+      "exc": 0,
+      "total": 46,
+      "none_symbols": []
+    },
+    "service_operational_model": {
+      "ok": 35,
+      "none": 0,
+      "exc": 0,
+      "total": 35,
+      "none_symbols": []
+    },
+    "investment_trust_model": {
+      "ok": 17,
+      "none": 0,
+      "exc": 0,
+      "total": 17,
+      "none_symbols": []
+    },
+    "sport_club_model": {
+      "ok": 4,
+      "none": 0,
+      "exc": 0,
+      "total": 4,
+      "none_symbols": []
+    },
+    "asset_mgmt_proxy": {
+      "ok": 2,
+      "none": 1,
+      "exc": 0,
+      "total": 3,
+      "none_symbols": [
+        "GLCVY"
+      ]
+    },
+    "lending_operational_model": {
+      "ok": 9,
+      "none": 2,
+      "exc": 0,
+      "total": 11,
+      "none_symbols": [
+        "QNBFK",
+        "ULUFA"
+      ]
+    }
+  },
+  "only_firestore_not_csv": [
+    "ALMAD",
+    "APGLD",
+    "ARMDA",
+    "AVISA",
+    "DAGHL",
+    "DGKLB",
+    "DOBUR",
+    "EFORC",
+    "GRTRK",
+    "IDEAS",
+    "IPEKE",
+    "ITTFH",
+    "IZTAR",
+    "KARYE",
+    "KERVT",
+    "KOZAA",
+    "KOZAL",
+    "METUR",
+    "MIPAZ",
+    "PEHOL",
+    "QNBFB",
+    "QNBFL",
+    "RHEAG",
+    "ROYAL",
+    "SELGD",
+    "SERVE",
+    "SNKRN",
+    "TACTR",
+    "TETMT",
+    "TIRE",
+    "TKURU",
+    "UTPYA",
+    "UZERB",
+    "YGYO"
+  ],
+  "only_csv_not_firestore": [],
+  "kozal_in_hisseler": true,
+  "kozal_in_csv": false,
+  "tralt_in_hisseler": true,
+  "tralt_in_csv": true,
+  "score_none_symbols": [
+    "GLCVY",
+    "ISKUR",
+    "MARMR",
+    "MMCAS",
+    "QNBFK",
+    "ULUFA"
+  ],
+  "exception_symbols": [],
+  "yellow_symbols": [
+    {
+      "symbol": "AGROT",
+      "reason": "manual_review"
+    },
+    {
+      "symbol": "BJKAS",
+      "reason": "sport_club_adjusted"
+    },
+    {
+      "symbol": "BORLS",
+      "reason": "manual_review"
+    },
+    {
+      "symbol": "BRKVY",
+      "reason": "proxy_model"
+    },
+    {
+      "symbol": "ESCAR",
+      "reason": "manual_review"
+    },
+    {
+      "symbol": "FENER",
+      "reason": "sport_club_adjusted"
+    },
+    {
+      "symbol": "GSRAY",
+      "reason": "sport_club_adjusted"
+    },
+    {
+      "symbol": "LIDER",
+      "reason": "manual_review"
+    },
+    {
+      "symbol": "PLTUR",
+      "reason": "manual_review"
+    },
+    {
+      "symbol": "SMRVA",
+      "reason": "proxy_model"
+    },
+    {
+      "symbol": "TSPOR",
+      "reason": "sport_club_adjusted"
+    }
+  ],
+  "red_symbols": [
+    {
+      "symbol": "GLCVY",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    },
+    {
+      "symbol": "ISKUR",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    },
+    {
+      "symbol": "MARMR",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    },
+    {
+      "symbol": "MMCAS",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    },
+    {
+      "symbol": "QNBFK",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    },
+    {
+      "symbol": "ULUFA",
+      "reason": "SCORE_NONE_DATA_MISSING"
+    }
+  ]
+}
