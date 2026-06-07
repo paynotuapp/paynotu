@@ -416,9 +416,212 @@ class FinansalPanel extends StatelessWidget {
               ],
             ),
           ],
+
+          // ── Fundamental Engine Skoru ─────────────────────────────
+          _FundamentalSkorBolumu(hisseData: hisseData),
+
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+}
+
+// ── Fundamental Engine verileri ──────────────────────────────────
+class _FundamentalSkorBolumu extends StatelessWidget {
+  final Map<String, dynamic> hisseData;
+  const _FundamentalSkorBolumu({required this.hisseData});
+
+  Color _skorRengi(BuildContext context, double skor) {
+    final cs = Theme.of(context).colorScheme;
+    if (skor >= 7) return cs.primary;
+    if (skor >= 4) return cs.tertiary;
+    return cs.error;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final finansalSkor      = (hisseData['finansal_skor']      as num?)?.toDouble();
+    final finansalLabel     =  hisseData['finansal_skor_label'] as String?;
+    final finansalQuality   = (hisseData['finansal_skor_quality'] as num?)?.toDouble();
+    final finansalSubscores =  hisseData['finansal_subscores']  as Map<String, dynamic>?;
+    final piotroskiScore    = (hisseData['piotroski_score']     as num?)?.toInt();
+    final finansalAciklama  =  hisseData['finansal_aciklama']   as String?;
+    final finansalFlags     =  hisseData['finansal_flags']      as List<dynamic>?;
+
+    if (finansalSkor == null &&
+        (finansalSubscores == null || finansalSubscores.isEmpty) &&
+        piotroskiScore == null &&
+        (finansalAciklama == null || finansalAciklama.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+
+    const subskorAdlar = <String, String>{
+      'profitability': 'Karlılık',
+      'growth':        'Büyüme',
+      'valuation':     'Değerleme',
+      'stability':     'İstikrar',
+      'balance_sheet': 'Bilanço',
+      'cash_flow':     'Nakit Akışı',
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const SizedBox(height: 8),
+
+        // Başlık + skor + label
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Finansal Skor',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface)),
+                  if (finansalLabel != null && finansalLabel.isNotEmpty)
+                    Text(finansalLabel,
+                        style: TextStyle(
+                            fontSize: 11, color: cs.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            if (finansalSkor != null)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _skorRengi(context, finansalSkor)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${finansalSkor.toStringAsFixed(2)} / 10',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: _skorRengi(context, finansalSkor)),
+                ),
+              ),
+          ],
+        ),
+
+        // Alt kırılımlar
+        if (finansalSubscores != null &&
+            subskorAdlar.keys.any((k) => finansalSubscores[k] != null)) ...[
+          const SizedBox(height: 10),
+          Text('Alt Kırılımlar',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          for (final e in subskorAdlar.entries)
+            if (finansalSubscores[e.key] != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(e.value,
+                          style: TextStyle(
+                              fontSize: 12, color: cs.onSurfaceVariant)),
+                    ),
+                    Text(
+                      (finansalSubscores[e.key] as num)
+                          .toDouble()
+                          .toStringAsFixed(2),
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _skorRengi(
+                              context,
+                              (finansalSubscores[e.key] as num)
+                                  .toDouble())),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+
+        // Piotroski
+        if (piotroskiScore != null) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Piotroski',
+                    style: TextStyle(
+                        fontSize: 12, color: cs.onSurfaceVariant)),
+              ),
+              Text('$piotroskiScore / 9',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: _skorRengi(
+                          context, piotroskiScore * 10.0 / 9.0))),
+            ],
+          ),
+        ],
+
+        // Açıklama
+        if (finansalAciklama != null && finansalAciklama.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text('Açıklama',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(finansalAciklama,
+              style:
+                  TextStyle(fontSize: 12, color: cs.onSurface, height: 1.5)),
+        ],
+
+        // Sınırlı veri uyarısı
+        if (finansalQuality != null && finansalQuality < 0.50) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.info_outline, size: 14, color: cs.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  'Bu skor sınırlı veriyle hesaplanmıştır.',
+                  style:
+                      TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ],
+
+        // Flags (maks 2)
+        if (finansalFlags != null && finansalFlags.isNotEmpty)
+          ...finansalFlags.take(2).map((f) => Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 14, color: cs.onSurfaceVariant),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(f.toString(),
+                          style: TextStyle(
+                              fontSize: 11, color: cs.onSurfaceVariant)),
+                    ),
+                  ],
+                ),
+              )),
+
+        const SizedBox(height: 8),
+      ],
     );
   }
 }

@@ -41,18 +41,6 @@ int spekGunAl(Map<String, dynamic> data) {
 
 // ── İç hesaplama fonksiyonları ────────────────────────────────────────────────
 
-/// Spek gününe göre skoru aşağı çeker.
-///
-/// • spek < 20   → değişiklik yok
-/// • spek 20–50  → 1 kademe aşağı  (–0.5 ≈ bir bant genişliği)
-/// • spek 51–100 → 2 kademe aşağı  (–1.0 ≈ iki bant genişliği)
-/// • spek > 100  → maksimum turuncu (P50'ye sabitlenir)
-double _spekAyarli(double skor, int spekGun) {
-  if (spekGun > 100) return skor.clamp(0.0, _p50);
-  if (spekGun > 50)  return (skor - 1.0).clamp(0.0, 10.0);
-  if (spekGun > 20)  return (skor - 0.5).clamp(0.0, 10.0);
-  return skor;
-}
 
 /// Skoru renk bantlarına çevirir — bantlar arası [Color.lerp] ile yumuşak geçiş.
 ///
@@ -103,5 +91,5 @@ Color sektorRenk(String sector) {
 ///   2.96 ≤ skor < 3.44         → Sarı      (%25–50)
 ///   3.44 ≤ skor < 3.95         → Turuncu   (%50–75)
 ///   skor ≥ 3.95 (tam → 4.36)  → Kırmızı   (üst %25)
-Color getPayNotuColor(double skor, int spekGun) =>
+Color getPayNotuColor(double skor) =>
     _skorToColor(skor.clamp(0.0, 10.0));

@@ -374,15 +374,32 @@ class _DetayScreenState extends State<DetayScreen>
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  '—',
+                                  (hisseData['finansal_skor'] as num?) == null
+                                      ? '—'
+                                      : (hisseData['finansal_skor'] as num)
+                                          .toDouble()
+                                          .toStringAsFixed(2),
                                   style: const TextStyle(
                                       fontSize: 22,
                                       fontWeight: FontWeight.bold),
                                 ),
+                                if ((hisseData['finansal_skor_label'] as String?)
+                                        ?.isNotEmpty ==
+                                    true)
+                                  Text(
+                                    hisseData['finansal_skor_label'] as String,
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary),
+                                  ),
                                 Text('Finansal Skor',
                                     style: TextStyle(
                                         fontSize: 11,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                               ],
                             ),
                             VerticalDivider(
@@ -395,7 +412,6 @@ class _DetayScreenState extends State<DetayScreen>
                                   final pn = rawPn == null
                                       ? null
                                       : (rawPn as num).toDouble();
-                                  final sg = spekGunAl(hisseData);
                                   return Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 4),
@@ -560,11 +576,6 @@ class _DetayScreenState extends State<DetayScreen>
                     ],
                   ),
                 ),
-
-                const SizedBox(height: 8),
-
-                // ── FİNANSAL ANALİZ ─────────────────────────────
-                _FinansalAnalizKarti(hisseData: hisseData),
 
                 const SizedBox(height: 8),
 
@@ -896,175 +907,6 @@ class _DetayScreenState extends State<DetayScreen>
               fontSize: 20,
               color: renk),
         ),
-      ),
-    );
-  }
-}
-
-// ── FİNANSAL ANALİZ KARTI ───────────────────────────────────────
-class _FinansalAnalizKarti extends StatelessWidget {
-  final Map<String, dynamic> hisseData;
-  const _FinansalAnalizKarti({required this.hisseData});
-
-  Color _skorRengi(BuildContext context, double? skor) {
-    if (skor == null) return Theme.of(context).colorScheme.onSurfaceVariant;
-    if (skor >= 7) return Theme.of(context).colorScheme.primary;
-    if (skor >= 4) return Colors.orange;
-    return Colors.red;
-  }
-
-  Color _riskRengi(BuildContext context, String? derece) {
-    switch (derece) {
-      case 'Normal':       return Theme.of(context).colorScheme.primary;
-      case 'Dikkat':       return Colors.orange;
-      case 'Spekülatif':   return Colors.deepOrange;
-      case 'Aşırı Riskli': return Colors.red;
-      default:             return Theme.of(context).colorScheme.onSurfaceVariant;
-    }
-  }
-
-  Widget _satir(IconData ikon, String baslik, String deger, Color renk) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(ikon, size: 18, color: renk),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(baslik,
-                style: const TextStyle(fontSize: 13, color: Colors.black54)),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: renk.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(deger,
-                style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.bold, color: renk)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _uyariKarti(String mesaj, Color renk, IconData ikon) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: renk.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: renk.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          Icon(ikon, size: 18, color: renk),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              mesaj,
-              style: TextStyle(fontSize: 12, color: renk, height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final finansalSkor     = (hisseData['finansal_skor']         as num?)?.toDouble();
-    final spekulatifDerece =  hisseData['spekulatif_derece']      as String?;
-    final trend            =  hisseData['trend']                  as String?;
-    final saglikSkoru      = (hisseData['finansal_saglik_skoru']  as num?)?.toDouble();
-    final balikTuzagi      = (hisseData['balik_tuzagi_sayisi']    as num?)?.toInt() ?? 0;
-    final organizeHareket  =  hisseData['organize_hareket_riski'] as bool? ?? false;
-    final mantikUyarilari  =  List<String>.from(hisseData['mantik_uyarilari'] ?? []);
-
-    // Hiç veri yoksa bölümü gösterme
-    if (finansalSkor == null && spekulatifDerece == null &&
-        trend == null && saglikSkoru == null) {
-      return const SizedBox.shrink();
-    }
-
-    final trendIkon = trend == 'Yükselen'
-        ? Icons.trending_up
-        : trend == 'Düşen'
-            ? Icons.trending_down
-            : Icons.trending_flat;
-
-    final trendRenk = trend == 'Yükselen'
-        ? Theme.of(context).colorScheme.primary
-        : trend == 'Düşen'
-            ? Colors.red
-            : Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Container(
-      color: Theme.of(context).colorScheme.surface,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.bar_chart, size: 18,
-                  color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 8),
-              const Text('Finansal Analiz',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (finansalSkor != null)
-            _satir(
-              Icons.show_chart,
-              'Finansal Skor',
-              '${finansalSkor.toStringAsFixed(1)} / 10',
-              _skorRengi(context, finansalSkor),
-            ),
-          if (spekulatifDerece != null)
-            _satir(
-              Icons.warning_amber_rounded,
-              'Spekülatif Risk',
-              spekulatifDerece,
-              _riskRengi(context, spekulatifDerece),
-            ),
-          if (trend != null)
-            _satir(
-              trendIkon,
-              'Trend',
-              trend,
-              trendRenk,
-            ),
-          if (saglikSkoru != null)
-            _satir(
-              Icons.favorite_outline,
-              'Finansal Sağlık',
-              '${saglikSkoru.toStringAsFixed(1)} / 10',
-              _skorRengi(context, saglikSkoru),
-            ),
-          // ── Uyarı Kartları ────────────────────────────────────────────
-          if (balikTuzagi >= 3)
-            _uyariKarti(
-              '⚠️ Bu hissede balina tuzağı geçmişi var ($balikTuzagi kez tespit edildi)',
-              Colors.red,
-              Icons.phishing,
-            ),
-          if (organizeHareket)
-            _uyariKarti(
-              '🚨 Ardışık anormal hareket tespit edildi',
-              Colors.red,
-              Icons.dangerous,
-            ),
-          for (final uyari in mantikUyarilari)
-            _uyariKarti(
-              uyari,
-              Colors.orange,
-              Icons.info_outline,
-            ),
-        ],
       ),
     );
   }
