@@ -1,40 +1,40 @@
 {
   "meta": {
-    "total_csv": 611,
+    "total_csv": 622,
     "duplicates": [],
     "empty_symbol": 0,
     "empty_main_sector": 0,
     "empty_sub_sector": 0,
     "unknown_sector_group": 0,
-    "manual_review": 4,
+    "manual_review": 7,
     "by_group": {
-      "financial_special": 23,
-      "energy_utility": 40,
+      "financial_special": 24,
+      "energy_utility": 42,
       "gyo": 53,
-      "industrial": 312,
+      "industrial": 317,
       "real_estate_operational": 4,
       "insurance": 6,
-      "holding": 55,
+      "holding": 56,
       "bank": 16,
-      "technology_operational": 46,
-      "service_operational": 39,
+      "technology_operational": 47,
+      "service_operational": 40,
       "investment_trust": 17
     },
     "by_main_sector": {
-      "MALİ KURULUŞLAR": 170,
-      "ELEKTRİK GAZ VE SU": 39,
-      "İMALAT": 248,
+      "MALİ KURULUŞLAR": 172,
+      "ELEKTRİK GAZ VE SU": 40,
+      "İMALAT": 252,
       "GAYRİMENKUL FAALİYETLERİ": 4,
       "TARIM, ORMANCILIK VE BALIKÇILIK": 5,
       "İNŞAAT VE BAYINDIRLIK": 15,
-      "TEKNOLOJİ": 43,
+      "TEKNOLOJİ": 44,
       "TOPTAN VE PERAKENDE TİCARET": 26,
       "OTELLER VE LOKANTALAR": 15,
       "ULAŞTIRMA VE DEPOLAMA": 12,
-      "BİLGİ VE İLETİŞİM": 6,
+      "BİLGİ VE İLETİŞİM": 7,
       "EĞİTİM SAĞLIK SPOR VE EĞLENCE HİZMETLERİ": 10,
       "İDARİ VE DESTEK HİZMET FAALİYETLERİ": 7,
-      "MADENCİLİK VE TAŞ OCAKÇILIĞI": 7,
+      "MADENCİLİK VE TAŞ OCAKÇILIĞI": 9,
       "MESLEKİ, BİLİMSEL VE TEKNİK FAALİYETLER": 4
     }
   },
@@ -1025,6 +1025,32 @@
       "sector_source": "KAP",
       "sector_source_file": "sektorler.pdf",
       "sector_source_version": "kap_sektor_map_2026_05",
+      "sector_verified": true
+    },
+    {
+      "symbol": "ALMAD",
+      "company_name": "Altınyağ Madencilik ve Enerji Yatırımları Sanayi ve Ticaret A.Ş.",
+      "kap_ana_sektor": "MADENCİLİK VE TAŞ OCAKÇILIĞI",
+      "kap_alt_sektor": "METALİK MADEN",
+      "paynotu_sector_group": "industrial",
+      "financial_model": "industrial_general",
+      "sector_profile": "industrial_general",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": true,
+      "match_level": "manual_mapping",
+      "routing_note": "Madencilik/enerji faaliyetleri nedeniyle energy_utility sınırında olabilir; V1'de industrial_general ile takip edildi.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
       "sector_verified": true
     },
     {
@@ -4348,6 +4374,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "DOBUR",
+      "company_name": "Doğan Burda Dergi Yayıncılık ve Pazarlama A.Ş.",
+      "kap_ana_sektor": "BİLGİ VE İLETİŞİM",
+      "kap_alt_sektor": "YAYIMCILIK FAALİYETLERİ",
+      "paynotu_sector_group": "service_operational",
+      "financial_model": "service_operational",
+      "sector_profile": "service",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Medya/yayıncılık faaliyetleri nedeniyle service_operational modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "DOCO",
       "company_name": "DO & CO AKTIENGESELLSCHAFT",
       "kap_ana_sektor": "OTELLER VE LOKANTALAR",
@@ -7316,6 +7368,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "IDEAS",
+      "company_name": "Skyalp Finansal Teknolojiler ve Danışmanlık A.Ş.",
+      "kap_ana_sektor": "MALİ KURULUŞLAR",
+      "kap_alt_sektor": "ARACI KURUMLAR",
+      "paynotu_sector_group": "financial_special",
+      "financial_model": "financial_special",
+      "sector_profile": "broker_operational",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": true,
+      "match_level": "manual_mapping",
+      "routing_note": "Finansal teknoloji/danışmanlık iş modeli nedeniyle financial_special altında geçici broker_operational profiliyle takip edildi; iş modeli doğrulaması önerilir.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "IDGYO",
       "company_name": "İDEALİST GAYRİMENKUL YATIRIM ORTAKLIĞI A.Ş.",
       "kap_ana_sektor": "MALİ KURULUŞLAR",
@@ -7729,6 +7807,32 @@
       "sector_source": "KAP",
       "sector_source_file": "sektorler.pdf",
       "sector_source_version": "kap_sektor_map_2026_05",
+      "sector_verified": true
+    },
+    {
+      "symbol": "IPEKE",
+      "company_name": "TR Doğal Enerji Kaynakları Araştırma ve Üretim A.Ş.",
+      "kap_ana_sektor": "MADENCİLİK VE TAŞ OCAKÇILIĞI",
+      "kap_alt_sektor": "PETROL VE DOĞAL GAZ",
+      "paynotu_sector_group": "energy_utility",
+      "financial_model": "energy_utility",
+      "sector_profile": "energy_utility",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Doğal enerji kaynakları faaliyeti nedeniyle energy_utility modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
       "sector_verified": true
     },
     {
@@ -8298,6 +8402,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "KARYE",
+      "company_name": "Kartal Yenilenebilir Enerji Üretim A.Ş.",
+      "kap_ana_sektor": "ELEKTRİK GAZ VE SU",
+      "kap_alt_sektor": "ELEKTRİK GAZ VE BUHAR",
+      "paynotu_sector_group": "energy_utility",
+      "financial_model": "energy_utility",
+      "sector_profile": "energy_utility",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Yenilenebilir enerji faaliyeti nedeniyle energy_utility modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "KATMR",
       "company_name": "KATMERCİLER ARAÇ ÜSTÜ EKİPMAN SANAYİ VE TİCARET A.Ş.",
       "kap_ana_sektor": "İMALAT",
@@ -8477,6 +8607,32 @@
       "sector_source": "KAP",
       "sector_source_file": "sektorler.pdf",
       "sector_source_version": "kap_sektor_map_2026_05",
+      "sector_verified": true
+    },
+    {
+      "symbol": "KERVT",
+      "company_name": "Besler Gıda ve Kimya Sanayi ve Ticaret A.Ş.",
+      "kap_ana_sektor": "İMALAT",
+      "kap_alt_sektor": "GIDA İÇECEK VE TÜTÜN",
+      "paynotu_sector_group": "industrial",
+      "financial_model": "industrial_general",
+      "sector_profile": "food_beverage",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": true,
+      "match_level": "manual_mapping",
+      "routing_note": "Gıda ve kimya karma faaliyetleri nedeniyle V1'de industrial_general kullanıldı; food_beverage profiliyle manuel izleme önerilir.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
       "sector_verified": true
     },
     {
@@ -10296,6 +10452,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "METUR",
+      "company_name": "Blume Metal Kimya A.Ş.",
+      "kap_ana_sektor": "İMALAT",
+      "kap_alt_sektor": "ANA METAL SANAYİ",
+      "paynotu_sector_group": "industrial",
+      "financial_model": "industrial_general",
+      "sector_profile": "industrial_general",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Metal/kimya sanayi faaliyeti nedeniyle industrial_general modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "MEYSU",
       "company_name": "MEYSU GIDA SANAYİ VE TİCARET A.Ş.",
       "kap_ana_sektor": "İMALAT",
@@ -11774,6 +11956,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "PEHOL",
+      "company_name": "Tera Yatırım Teknoloji Holding A.Ş.",
+      "kap_ana_sektor": "MALİ KURULUŞLAR",
+      "kap_alt_sektor": "HOLDİNG VE YATIRIM ŞİRKETLERİ",
+      "paynotu_sector_group": "holding",
+      "financial_model": "holding",
+      "sector_profile": "holding",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Holding yapısı nedeniyle holding modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "PEKGY",
       "company_name": "PEKER GAYRİMENKUL YATIRIM ORTAKLIĞI A.Ş.",
       "kap_ana_sektor": "MALİ KURULUŞLAR",
@@ -12524,6 +12732,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "ROYAL",
+      "company_name": "Royal Halı İplik Tekstil Mobilya Sanayi ve Ticaret A.Ş.",
+      "kap_ana_sektor": "İMALAT",
+      "kap_alt_sektor": "TEKSTİL GİYİM EŞYASI VE DERİ",
+      "paynotu_sector_group": "industrial",
+      "financial_model": "industrial_general",
+      "sector_profile": "textile",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Tekstil sanayi faaliyeti nedeniyle industrial_general modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "RTALB",
       "company_name": "RTA LABORATUVARLARI BİYOLOJİK ÜRÜNLER İLAÇ VE MAKİNE SANAYİ TİCARET A.Ş.",
       "kap_ana_sektor": "İMALAT",
@@ -13042,6 +13276,32 @@
       "sector_verified": true
     },
     {
+      "symbol": "SELGD",
+      "company_name": "Selçuk Gıda Endüstri İhracat İthalat A.Ş.",
+      "kap_ana_sektor": "İMALAT",
+      "kap_alt_sektor": "GIDA İÇECEK VE TÜTÜN",
+      "paynotu_sector_group": "industrial",
+      "financial_model": "industrial_general",
+      "sector_profile": "food_beverage",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Gıda sanayi faaliyeti nedeniyle industrial_general modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
+      "sector_verified": true
+    },
+    {
       "symbol": "SELVA",
       "company_name": "SELVA GIDA SANAYİ A.Ş.",
       "kap_ana_sektor": "İMALAT",
@@ -13401,6 +13661,32 @@
       "sector_source": "KAP",
       "sector_source_file": "sektorler.pdf",
       "sector_source_version": "kap_sektor_map_2026_05",
+      "sector_verified": true
+    },
+    {
+      "symbol": "SNKRN",
+      "company_name": "Gate Group Teknoloji Medya ve Siber Güvenlik Hizmetleri A.Ş.",
+      "kap_ana_sektor": "TEKNOLOJİ",
+      "kap_alt_sektor": "BİLGİSAYAR PROGRAMLAMA",
+      "paynotu_sector_group": "technology_operational",
+      "financial_model": "technology_operational",
+      "sector_profile": "technology",
+      "primary_source": "isyatirim_group_1",
+      "fallback_sources": [
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "financial_source_priority": [
+        "isyatirim_group_1",
+        "yfinance_quarterly",
+        "borsapy_yearly"
+      ],
+      "manual_review_required": false,
+      "match_level": "manual_mapping",
+      "routing_note": "Teknoloji/siber güvenlik faaliyeti nedeniyle technology_operational modeli kullanıldı.",
+      "sector_source": "manual",
+      "sector_source_file": "active_symbol_mapping_patch_2026_06",
+      "sector_source_version": "kap_sektor_map_2026_06",
       "sector_verified": true
     },
     {
