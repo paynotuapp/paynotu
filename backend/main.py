@@ -305,6 +305,39 @@ def _motor_detay_payload(f_result) -> dict:
     }
 
 
+def _build_fundamental_payload(fund_res) -> dict:
+    """FundamentalEngine sonucundan Firestore finansal alanları üretir."""
+    _pio  = fund_res.piotroski
+    _fsub = fund_res.subscores
+    return {
+        "finansal_skor":              fund_res.financial_score,
+        "finansal_skor_label":        fund_res.financial_score_label,
+        "finansal_skor_quality":      fund_res.financial_score_quality,
+        "finansal_subscores": {
+            "profitability": _fsub.profitability,
+            "balance_sheet": _fsub.balance_sheet,
+            "cash_flow":     _fsub.cash_flow,
+            "growth":        _fsub.growth,
+            "valuation":     _fsub.valuation,
+            "stability":     _fsub.stability,
+            "piotroski":     _fsub.piotroski,
+        },
+        "piotroski_score":            _pio.score               if _pio else None,
+        "piotroski_normalized":       _pio.normalized          if _pio else None,
+        "piotroski_total":            _pio.total_criteria      if _pio else 9,
+        "piotroski_calculated":       _pio.calculated_criteria if _pio else 0,
+        "piotroski_coverage":         _pio.coverage            if _pio else 0.0,
+        "piotroski_confidence":       _pio.confidence          if _pio else "not_applicable",
+        "piotroski_applicability":    _pio.applicability       if _pio else "not_applicable",
+        "piotroski_missing_criteria": _pio.missing_criteria    if _pio else [],
+        "finansal_aciklama":          fund_res.explanation,
+        "finansal_flags":             fund_res.financial_flags,
+        "finansal_data_source":       fund_res.data_source,
+        "finansal_sector_group":      fund_res.sector_group,
+        "finansal_period":            fund_res.period,
+    }
+
+
 # ── GÜNLÜK CRON JOB ───────────────────────────────────────────────────────────
 
 CRON_BATCH = 5
@@ -447,6 +480,39 @@ def daily_job(tickers: list[str] | None = None):
                     })
                     pass2_null_paynotu_count += 1
                     pass2_written_count += 1
+                    # OHLCV başarısız olsa da finansal tablo verisi bağımsız hesaplanır
+                    try:
+                        _hd_fund = ticker_docs.get(ticker) or {}
+                        _sector_group = (
+                            _hd_fund.get("paynotu_sector_group") or
+                            _hd_fund.get("financial_model") or
+                            None
+                        )
+                        _sektor = (
+                            _hd_fund.get("kap_alt_sektor") or
+                            _hd_fund.get("kap_ana_sektor") or
+                            _hd_fund.get("sektor") or
+                            _hd_fund.get("sector") or
+                            ""
+                        )
+                        _sector_profile = _hd_fund.get("sector_profile")
+                        fund_res = fund_engine.calculate(
+                            ticker,
+                            sektor=_sektor,
+                            sector_group=_sector_group,
+                            sector_profile=_sector_profile,
+                        )
+                        db.collection("hisseler").document(ticker).update(
+                            _build_fundamental_payload(fund_res)
+                        )
+                        logger.info(
+                            f"[{ticker}] fund_engine OK (ohlcv_fail) — "
+                            f"skor={fund_res.financial_score} "
+                            f"quality={fund_res.financial_score_quality} "
+                            f"label={fund_res.financial_score_label}"
+                        )
+                    except Exception as fund_err:
+                        logger.warning(f"[{ticker}] fund_engine hatası (ohlcv_fail): {fund_err}")
                     continue
 
                 final = integrator.calculate(cache["f"], cache["e"], q05, q95)
@@ -546,35 +612,9 @@ def daily_job(tickers: list[str] | None = None):
                         sector_group=_sector_group,
                         sector_profile=_sector_profile,
                     )
-                    _pio      = fund_res.piotroski
-                    _fsub     = fund_res.subscores
-                    db.collection("hisseler").document(ticker).update({
-                        "finansal_skor":          fund_res.financial_score,
-                        "finansal_skor_label":    fund_res.financial_score_label,
-                        "finansal_skor_quality":  fund_res.financial_score_quality,
-                        "finansal_subscores": {
-                            "profitability": _fsub.profitability,
-                            "balance_sheet": _fsub.balance_sheet,
-                            "cash_flow":     _fsub.cash_flow,
-                            "growth":        _fsub.growth,
-                            "valuation":     _fsub.valuation,
-                            "stability":     _fsub.stability,
-                            "piotroski":     _fsub.piotroski,
-                        },
-                        "piotroski_score":         _pio.score                if _pio else None,
-                        "piotroski_normalized":    _pio.normalized           if _pio else None,
-                        "piotroski_total":         _pio.total_criteria       if _pio else 9,
-                        "piotroski_calculated":    _pio.calculated_criteria  if _pio else 0,
-                        "piotroski_coverage":      _pio.coverage             if _pio else 0.0,
-                        "piotroski_confidence":    _pio.confidence           if _pio else "not_applicable",
-                        "piotroski_applicability": _pio.applicability        if _pio else "not_applicable",
-                        "piotroski_missing_criteria": _pio.missing_criteria  if _pio else [],
-                        "finansal_aciklama":       fund_res.explanation,
-                        "finansal_flags":         fund_res.financial_flags,
-                        "finansal_data_source":   fund_res.data_source,
-                        "finansal_sector_group":  fund_res.sector_group,
-                        "finansal_period":        fund_res.period,
-                    })
+                    db.collection("hisseler").document(ticker).update(
+                        _build_fundamental_payload(fund_res)
+                    )
                     logger.info(
                         f"[{ticker}] fund_engine OK — "
                         f"skor={fund_res.financial_score} "
