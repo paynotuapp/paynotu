@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:pay/utils/paynotu_color.dart';
 import 'package:pay/widgets/panel_halk.dart';
 import 'package:pay/widgets/finansal_panel.dart';
 
@@ -50,7 +50,6 @@ class _AnalizTabState extends State<AnalizTab>
           hisseData: widget.hisseData,
           symbol: widget.symbol,
         ),
-      
         Container(
           decoration: BoxDecoration(
             border: Border(
@@ -115,272 +114,81 @@ class _AnalizTabState extends State<AnalizTab>
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HİSSE BAŞLIK
-// ═════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HİSSE BAŞLIĞI — detay_screen.dart header ile birebir
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _HisseBasligi extends StatelessWidget {
   final Map<String, dynamic> hisseData;
   final String symbol;
 
-  const _HisseBasligi({
-    required this.hisseData,
-    required this.symbol,
-  });
+  const _HisseBasligi({required this.hisseData, required this.symbol});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bilgi = _HisseBilgi.fromData(hisseData, symbol);
+    final logo = (hisseData['logo'] ?? '') as String;
+    final name = (hisseData['name'] ?? '') as String;
+    final industry = (hisseData['industry'] ?? '') as String;
+    final sector = (hisseData['sector'] ?? '') as String;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            bilgi.isim,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+    Widget logoWidget() {
+      final renk = sektorRenk(sector);
+      final fallback = Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          color: renk.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            symbol.length >= 2 ? symbol.substring(0, 2) : symbol,
             style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              height: 1.05,
-              letterSpacing: -1.2,
-              color: cs.onSurface,
-            ),
+                fontWeight: FontWeight.bold, fontSize: 20, color: renk),
           ),
-
-          if (bilgi.isim != bilgi.symbol) ...[
-            const SizedBox(height: 4),
-            Text(
-              bilgi.symbol,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 4),
-
-          Text(
-            bilgi.altBilgi,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w500,
-              color: cs.onSurfaceVariant,
-            ),
-          ),
-
-          if (bilgi.fiyatGorunsun) ...[
-            const SizedBox(height: 28),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 22,
-              runSpacing: 14,
-              children: [
-                if (bilgi.fiyatMetni != null)
-                  Text(
-                    bilgi.fiyatMetni!,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      height: 0.95,
-                      letterSpacing: -2.4,
-                      color: cs.onSurface,
-                    ),
-                  ),
-
-                if (bilgi.hedefMetni != null)
-                  RichText(
-                    text: TextSpan(
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: cs.onSurface,
-                      ),
-                      children: [
-                        const TextSpan(text: 'Hedef: '),
-                        TextSpan(
-                          text: bilgi.hedefMetni,
-                          style: TextStyle(
-                            color: Colors.green.shade700,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                if (bilgi.degisimMetni != null)
-                  _DegisimRozeti(
-                    metin: bilgi.degisimMetni!,
-                    pozitif: bilgi.degisimPozitif ?? false,
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-@immutable
-class _HisseBilgi {
-  final String isim;
-  final String symbol;
-  final String altBilgi;
-  final String? fiyatMetni;
-  final String? hedefMetni;
-  final String? degisimMetni;
-  final bool? degisimPozitif;
-
-  const _HisseBilgi({
-    required this.isim,
-    required this.symbol,
-    required this.altBilgi,
-    required this.fiyatMetni,
-    required this.hedefMetni,
-    required this.degisimMetni,
-    required this.degisimPozitif,
-  });
-
-  bool get fiyatGorunsun {
-    return fiyatMetni != null || hedefMetni != null || degisimMetni != null;
-  }
-
-  factory _HisseBilgi.fromData(Map<String, dynamic> d, String symbol) {
-    final isim = _str(d['name']) ??
-        _str(d['short_name']) ??
-        _str(d['shortName']) ??
-        symbol;
-
-    final fiyat = _num(d['fiyat']) ??
-        _num(d['son_fiyat']) ??
-        _num(d['last_price']) ??
-        _num(d['price']) ??
-        _num(d['close']);
-
-    final hedef = _num(d['hedef_fiyat']) ??
-        _num(d['target_price']) ??
-        _num(d['analyst_target_price']);
-
-    final degisim = _num(d['haftalik_degisim_yuzde']) ??
-        _num(d['degisim_7g_yuzde']) ??
-        _num(d['weekly_change_percent']) ??
-        _num(d['weekly_change']);
-
-    final borsa = _str(d['borsa']) ??
-        _str(d['exchange']) ??
-        _borsaTahminEt(d) ??
-        'BIST';
-
-    final paraBirimi = _str(d['para_birimi']) ??
-        _str(d['currency']) ??
-        (borsa.toUpperCase().contains('BIST') ? 'TRY' : 'USD');
-
-    final ulke = _str(d['ulke']) ??
-        _str(d['country']) ??
-        (paraBirimi == 'TRY' ? 'TR' : 'US');
-
-    final fiyatFormat = _fiyatFormatla(fiyat, paraBirimi);
-    final hedefFormat = _fiyatFormatla(hedef, paraBirimi);
-
-    return _HisseBilgi(
-      isim: isim,
-      symbol: symbol,
-      altBilgi: '$borsa · $paraBirimi · $ulke',
-      fiyatMetni: fiyatFormat,
-      hedefMetni: hedefFormat,
-      degisimMetni: degisim == null
-          ? null
-          : '${degisim >= 0 ? '+' : ''}${degisim.toStringAsFixed(1)}% 7g',
-      degisimPozitif: degisim == null ? null : degisim >= 0,
-    );
-  }
-
-  static String? _str(dynamic v) {
-    if (v is String && v.trim().isNotEmpty) {
-      return v.trim();
-    }
-    return null;
-  }
-
-  static double? _num(dynamic v) {
-    if (v is num) return v.toDouble();
-    return null;
-  }
-
-  static String? _borsaTahminEt(Map<String, dynamic> d) {
-    final endeksler = d['endeksler'];
-    if (endeksler is List) {
-      final hasBist = endeksler.any(
-        (e) => e.toString().toUpperCase().contains('BIST'),
+        ),
       );
-      if (hasBist) return 'BIST';
+      if (logo.isEmpty) return fallback;
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          logo,
+          width: 72,
+          height: 72,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => fallback,
+        ),
+      );
     }
-    return null;
-  }
-
-  static String? _fiyatFormatla(double? deger, String paraBirimi) {
-    if (deger == null) return null;
-
-    final sembol = switch (paraBirimi.toUpperCase()) {
-      'TRY' => '₺',
-      'TL' => '₺',
-      'USD' => '\$',
-      'EUR' => '€',
-      _ => '',
-    };
-
-    final formatter = NumberFormat('#,##0.00', 'tr_TR');
-    return '$sembol${formatter.format(deger)}';
-  }
-}
-
-class _DegisimRozeti extends StatelessWidget {
-  final String metin;
-  final bool pozitif;
-
-  const _DegisimRozeti({
-    required this.metin,
-    required this.pozitif,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final renk = pozitif ? Colors.green.shade700 : Colors.red.shade700;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 12,
-      ),
-      decoration: BoxDecoration(
-        color: renk.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(18),
-      ),
+      color: cs.surface,
+      padding: const EdgeInsets.all(16),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            pozitif ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-            size: 26,
-            color: renk,
-          ),
-          const SizedBox(width: 2),
-          Text(
-            metin,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              color: renk,
+          logoWidget(),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text(symbol,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurfaceVariant)),
+                const SizedBox(height: 2),
+                Text(industry,
+                    style: TextStyle(
+                        fontSize: 12, color: cs.primary)),
+              ],
             ),
           ),
         ],
