@@ -138,37 +138,31 @@ class _HisseBasligi extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          RichText(
+          Text(
+            bilgi.isim,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            text: TextSpan(
-              children: [
-                TextSpan(
-                  text: bilgi.isim,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    height: 1.05,
-                    letterSpacing: -1.2,
-                    color: cs.onSurface,
-                  ),
-                ),
-                if (bilgi.isim != bilgi.symbol) ...[
-                  const TextSpan(text: '  '),
-                  TextSpan(
-                    text: bilgi.symbol,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      height: 1.05,
-                      letterSpacing: -0.4,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ],
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              height: 1.05,
+              letterSpacing: -1.2,
+              color: cs.onSurface,
             ),
           ),
+
+          if (bilgi.isim != bilgi.symbol) ...[
+            const SizedBox(height: 4),
+            Text(
+              bilgi.symbol,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ],
 
           const SizedBox(height: 4),
 
