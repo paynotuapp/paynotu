@@ -338,6 +338,12 @@ class _DetayScreenState extends State<DetayScreen>
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 2),
+                                Text(_symbol,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                const SizedBox(height: 2),
                                 Text(_industry,
                                     style: TextStyle(
                                         fontSize: 12,
