@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:pay/utils/paynotu_color.dart';
 import 'package:pay/widgets/panel_halk.dart';
 import 'package:pay/widgets/finansal_panel.dart';
 
@@ -47,10 +46,6 @@ class _AnalizTabState extends State<AnalizTab>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _HisseBasligi(
-          hisseData: widget.hisseData,
-          symbol: widget.symbol,
-        ),
         _FiyatBolumu(
           hisseData: widget.hisseData,
           symbol: widget.symbol,
@@ -321,90 +316,6 @@ class _DegisimRozeti extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HİSSE BAŞLIĞI — detay_screen.dart header ile birebir
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _HisseBasligi extends StatelessWidget {
-  final Map<String, dynamic> hisseData;
-  final String symbol;
-
-  const _HisseBasligi({required this.hisseData, required this.symbol});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final logo = (hisseData['logo'] ?? '') as String;
-    final name = (hisseData['name'] ?? '') as String;
-    final industry = (hisseData['industry'] ?? '') as String;
-    final sector = (hisseData['sector'] ?? '') as String;
-
-    Widget logoWidget() {
-      final renk = sektorRenk(sector);
-      final fallback = Container(
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          color: renk.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            symbol.length >= 2 ? symbol.substring(0, 2) : symbol,
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 20, color: renk),
-          ),
-        ),
-      );
-      if (logo.isEmpty) return fallback;
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.network(
-          logo,
-          width: 72,
-          height: 72,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => fallback,
-        ),
-      );
-    }
-
-    return Container(
-      color: cs.surface,
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          logoWidget(),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
-                Text(symbol,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: cs.onSurfaceVariant)),
-                const SizedBox(height: 2),
-                Text(industry,
-                    style: TextStyle(
-                        fontSize: 12, color: cs.primary)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// PANEL 2: PAYNOTU ANALİZİ
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _PayNotuPanel extends StatelessWidget {
