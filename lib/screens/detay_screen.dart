@@ -284,11 +284,7 @@ class _DetayScreenState extends State<DetayScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // ── Sekme 0: Genel ──────────────────────────────────────
-          StreamBuilder<DocumentSnapshot>(
+      body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('hisseler')
             .doc(_symbol)
@@ -302,377 +298,362 @@ class _DetayScreenState extends State<DetayScreen>
               : HisseDetayModel(symbol: _symbol);
           final ortalama = (hisseData['ortalamaPuan'] ?? 0.0).toDouble();
 
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── HEADER ──────────────────────────────────────
-                Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+          return Column(
+            children: [
+              // ── SEKMELER ─────────────────────────────────────
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // ── Sekme 0: Genel ──────────────────────────────────────
+                    SingleChildScrollView(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: _logo.isNotEmpty
-                                ? Image.network(
-                                    _logo,
-                                    width: 72,
-                                    height: 72,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => _logoFallback(),
-                                  )
-                                : _logoFallback(),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
+                          // ── ORTAK HEADER ──────────────────────────────────────
+                          Container(
+                            color: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.all(16),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(_name,
-                                    style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 2),
-                                Text(_symbol,
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                                const SizedBox(height: 2),
-                                Text(_industry,
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Theme.of(context).colorScheme.primary)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      IntrinsicHeight(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Column(
-                              children: [
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      ortalama.toStringAsFixed(1),
-                                      style: const TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: _logo.isNotEmpty
+                                          ? Image.network(
+                                              _logo,
+                                              width: 72,
+                                              height: 72,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, _, _) => _logoFallback(),
+                                            )
+                                          : _logoFallback(),
                                     ),
-                                    const Icon(Icons.star,
-                                        size: 18, color: Color(0xFFFFC107)),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(_name,
+                                              style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 2),
+                                          Text(_symbol,
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                          const SizedBox(height: 2),
+                                          Text(_industry,
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Theme.of(context).colorScheme.primary)),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
-                                Text('Halk Skoru',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                              ],
-                            ),
-                            VerticalDivider(
-                                thickness: 1,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  (hisseData['finansal_skor'] as num?) == null
-                                      ? '—'
-                                      : (hisseData['finansal_skor'] as num)
-                                          .toDouble()
-                                          .toStringAsFixed(2),
-                                  style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                                if ((hisseData['finansal_skor_label'] as String?)
-                                        ?.isNotEmpty ==
-                                    true)
-                                  Text(
-                                    hisseData['finansal_skor_label'] as String,
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary),
+                                const SizedBox(height: 16),
+                                IntrinsicHeight(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      Column(
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                ortalama.toStringAsFixed(1),
+                                                style: const TextStyle(
+                                                    fontSize: 22,
+                                                    fontWeight: FontWeight.bold),
+                                              ),
+                                              const Icon(Icons.star,
+                                                  size: 18, color: Color(0xFFFFC107)),
+                                            ],
+                                          ),
+                                          Text('Halk Skoru',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                        ],
+                                      ),
+                                      VerticalDivider(
+                                          thickness: 1,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                      Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            (hisseData['finansal_skor'] as num?) == null
+                                                ? '—'
+                                                : (hisseData['finansal_skor'] as num)
+                                                    .toDouble()
+                                                    .toStringAsFixed(2),
+                                            style: const TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold),
+                                          ),
+                                          Text('Finansal Skor',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant)),
+                                        ],
+                                      ),
+                                      VerticalDivider(
+                                          thickness: 1,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                      Column(
+                                        children: [
+                                          Builder(builder: (context) {
+                                            final rawPn = hisseData['paynotu_skoru'];
+                                            final pn = rawPn == null
+                                                ? null
+                                                : (rawPn as num).toDouble();
+                                            return Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: PayNotuColors.forScore(pn),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                pn == null ? '—' : pn.toStringAsFixed(2),
+                                                style: TextStyle(
+                                                    color: pn == null
+                                                        ? Colors.grey.shade500
+                                                        : Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 18),
+                                              ),
+                                            );
+                                          }),
+                                          Text(
+                                            hisseData['paynotu_skoru'] == null
+                                                ? 'Henüz skorlanmadı'
+                                                : 'PayNotu',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                Text('Finansal Skor',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant)),
-                              ],
-                            ),
-                            VerticalDivider(
-                                thickness: 1,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant),
-                            Column(
-                              children: [
-                                Builder(builder: (context) {
-                                  final rawPn = hisseData['paynotu_skoru'];
-                                  final pn = rawPn == null
-                                      ? null
-                                      : (rawPn as num).toDouble();
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: PayNotuColors.forScore(pn),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      pn == null ? '—' : pn.toStringAsFixed(2),
-                                      style: TextStyle(
-                                          color: pn == null
-                                              ? Colors.grey.shade500
-                                              : Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 18),
-                                    ),
-                                  );
-                                }),
-                                Text(
-                                  hisseData['paynotu_skoru'] == null
-                                      ? 'Henüz skorlanmadı'
-                                      : 'PayNotu',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // ── SEMBOL ÇUBUĞU ────────────────────────────────
-                Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _sembolBtn(context,
-                          ikon: Icons.info_outline,
-                          etiket: 'Hakkında',
-                          onTap: () => _infoPopup(context, 'Bu Hisse Hakkında',
-                              _hakkindaIcerik(context))),
-                      _sembolBtn(context,
-                          ikon: Icons.label_outline,
-                          etiket: 'Etiketler',
-                          onTap: () => _infoPopup(
-                              context, 'Etiketler', _etiketlerIcerik(context))),
-                      _sembolBtn(context,
-                          ikon: Icons.place,
-                          etiket: 'Firma',
-                          onTap: () => _infoPopup(context, 'Firma Desteği',
-                              _firmaIcerik(context))),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // ── EDİTÖR GÖRÜŞÜ ────────────────────────────────
-                Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Icon(Icons.edit_note_outlined,
-                            size: 18,
-                            color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 8),
-                        const Text('Sözcü',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                      ]),
-                      const SizedBox(height: 8),
-                      if (detay.sozcuYorumu != null &&
-                          detay.sozcuYorumu!.isNotEmpty) ...[
-                        Text(detay.sozcuYorumu!,
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                height: 1.4)),
-                        if (detay.sozcuAdi != null) ...[
-                          const SizedBox(height: 6),
-                          Text('— ${detay.sozcuAdi}',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color:
-                                      Theme.of(context).colorScheme.primary,
-                                  fontWeight: FontWeight.w500)),
-                        ],
-                        if (detay.sozcuTarihi != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                              'Güncelleme: ${DateFormat('dd.MM.yy').format(detay.sozcuTarihi!)}',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant)),
-                        ],
-                      ] else
-                        Text('Henüz sözcü görüşü eklenmedi',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // ── AI ANALİZİ ───────────────────────────────────
-                Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Icon(Icons.auto_awesome_outlined,
-                            size: 18,
-                            color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 8),
-                        const Text('AI Analizi',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                      ]),
-                      const SizedBox(height: 8),
-                      if (detay.aiAnaliz != null &&
-                          detay.aiAnaliz!.isNotEmpty) ...[
-                        Text(detay.aiAnaliz!,
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                height: 1.4)),
-                        if (detay.aiAnalizTarihi != null) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                              'Güncelleme: ${DateFormat('dd.MM.yy').format(detay.aiAnalizTarihi!)}',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant)),
-                        ],
-                      ] else
-                        Text('Henüz AI analizi hazırlanmadı',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // ── PUAN VER ────────────────────────────────────
-                Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Bu hisseye puan verin',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text(
-                          'Düşüncelerinizi diğer ortaklarla paylaşın',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(5, (i) {
-                          return Icon(Icons.star_border,
-                              size: 36,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant);
-                        }),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => SozHakkiScreen(
-                                  symbol: _symbol,
-                                  hisseAdi: _name,
                                 ),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: Colors.black,
-                            side: const BorderSide(color: Colors.black),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8)),
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12),
+                              ],
+                            ),
                           ),
-                          child: const Text('Söz Hakkını Kullan',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
 
-              ],
-            ),
+                          const SizedBox(height: 8),
+
+                          // ── SEMBOL ÇUBUĞU ────────────────────────────────
+                          Container(
+                            color: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _sembolBtn(context,
+                                    ikon: Icons.info_outline,
+                                    etiket: 'Hakkında',
+                                    onTap: () => _infoPopup(context, 'Bu Hisse Hakkında',
+                                        _hakkindaIcerik(context))),
+                                _sembolBtn(context,
+                                    ikon: Icons.label_outline,
+                                    etiket: 'Etiketler',
+                                    onTap: () => _infoPopup(
+                                        context, 'Etiketler', _etiketlerIcerik(context))),
+                                _sembolBtn(context,
+                                    ikon: Icons.place,
+                                    etiket: 'Firma',
+                                    onTap: () => _infoPopup(context, 'Firma Desteği',
+                                        _firmaIcerik(context))),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // ── EDİTÖR GÖRÜŞÜ ────────────────────────────────
+                          Container(
+                            color: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(children: [
+                                  Icon(Icons.edit_note_outlined,
+                                      size: 18,
+                                      color: Theme.of(context).colorScheme.primary),
+                                  const SizedBox(width: 8),
+                                  const Text('Sözcü',
+                                      style: TextStyle(
+                                          fontSize: 15, fontWeight: FontWeight.bold)),
+                                ]),
+                                const SizedBox(height: 8),
+                                if (detay.sozcuYorumu != null &&
+                                    detay.sozcuYorumu!.isNotEmpty) ...[
+                                  Text(detay.sozcuYorumu!,
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          height: 1.4)),
+                                  if (detay.sozcuAdi != null) ...[
+                                    const SizedBox(height: 6),
+                                    Text('— ${detay.sozcuAdi}',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Theme.of(context).colorScheme.primary,
+                                            fontWeight: FontWeight.w500)),
+                                  ],
+                                  if (detay.sozcuTarihi != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                        'Güncelleme: ${DateFormat('dd.MM.yy').format(detay.sozcuTarihi!)}',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant)),
+                                  ],
+                                ] else
+                                  Text('Henüz sözcü görüşü eklenmedi',
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant)),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // ── AI ANALİZİ ───────────────────────────────────
+                          Container(
+                            color: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(children: [
+                                  Icon(Icons.auto_awesome_outlined,
+                                      size: 18,
+                                      color: Theme.of(context).colorScheme.primary),
+                                  const SizedBox(width: 8),
+                                  const Text('AI Analizi',
+                                      style: TextStyle(
+                                          fontSize: 15, fontWeight: FontWeight.bold)),
+                                ]),
+                                const SizedBox(height: 8),
+                                if (detay.aiAnaliz != null &&
+                                    detay.aiAnaliz!.isNotEmpty) ...[
+                                  Text(detay.aiAnaliz!,
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          height: 1.4)),
+                                  if (detay.aiAnalizTarihi != null) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                        'Güncelleme: ${DateFormat('dd.MM.yy').format(detay.aiAnalizTarihi!)}',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant)),
+                                  ],
+                                ] else
+                                  Text('Henüz AI analizi hazırlanmadı',
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant)),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // ── PUAN VER ────────────────────────────────────
+                          Container(
+                            color: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Bu hisseye puan verin',
+                                    style: TextStyle(
+                                        fontSize: 16, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    'Düşüncelerinizi diğer ortaklarla paylaşın',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: List.generate(5, (i) {
+                                    return Icon(Icons.star_border,
+                                        size: 36,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant);
+                                  }),
+                                ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => SozHakkiScreen(
+                                            symbol: _symbol,
+                                            hisseAdi: _name,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      backgroundColor: Colors.black,
+                                      side: const BorderSide(color: Colors.black),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8)),
+                                      padding:
+                                          const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                    child: const Text('Söz Hakkını Kullan',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Sekme 1: Analiz ──────────────────────────────────
+                    _AnalizTab(hisseData: hisseData),
+
+                    // ── Sekme 2: Sohbet ──────────────────────────────────
+                    SohbetTab(symbol: _symbol, hisseAdi: _name),
+                  ],
+                ),
+              ),
+            ],
           );
         },
-      ),
-
-          // ── Sekme 1: Analiz ──────────────────────────────────
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('hisseler')
-                .doc(_symbol)
-                .snapshots(),
-            builder: (context, hisseSnap) {
-              final firestoreData =
-                  hisseSnap.data?.data() as Map<String, dynamic>? ??
-                      widget.hisseData;
-              final hisseData = _hisseDataWithQuote(firestoreData);
-
-              return _AnalizTab(hisseData: hisseData);
-            },
-          ),
-
-          // ── Sekme 2: Sohbet ──────────────────────────────────
-          SohbetTab(symbol: _symbol, hisseAdi: _name),
-        ],
       ),
     );
   }
