@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:pay/utils/paynotu_color.dart';
 import 'package:pay/widgets/panel_halk.dart';
 import 'package:pay/widgets/finansal_panel.dart';
 
@@ -129,51 +130,100 @@ class _FiyatBolumu extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final bilgi = _HisseBilgi.fromData(hisseData, symbol);
-    if (!bilgi.fiyatGorunsun) return const SizedBox.shrink();
+    final logo   = (hisseData['logo']   as String?) ?? '';
+    final name   = (hisseData['name']   as String?) ?? symbol;
+    final sector = (hisseData['sector'] as String?) ?? '';
+
+    final renk = sektorRenk(sector);
+    final fallback = Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: renk.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Text(
+          symbol.length >= 2 ? symbol.substring(0, 2) : symbol,
+          style: TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 13, color: renk),
+        ),
+      ),
+    );
+
+    Widget logoW = fallback;
+    if (logo.isNotEmpty) {
+      logoW = ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          logo,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stack) => fallback,
+        ),
+      );
+    }
+
+    // İkinci satır: SEMBOL  ₺9,82  -3.0% 7g
+    final spans = <InlineSpan>[
+      TextSpan(
+        text: symbol,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: cs.onSurfaceVariant,
+        ),
+      ),
+      if (bilgi.fiyatMetni != null)
+        TextSpan(
+          text: '  ${bilgi.fiyatMetni}',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+      if (bilgi.degisimMetni != null)
+        TextSpan(
+          text: '  ${bilgi.degisimMetni}',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: (bilgi.degisimPozitif ?? false)
+                ? Colors.green.shade700
+                : Colors.red.shade700,
+          ),
+        ),
+    ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 22,
-        runSpacing: 10,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (bilgi.fiyatMetni != null)
-            Text(
-              bilgi.fiyatMetni!,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                height: 0.95,
-                letterSpacing: -2.4,
-                color: cs.onSurface,
-              ),
-            ),
-          if (bilgi.hedefMetni != null)
-            RichText(
-              text: TextSpan(
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: cs.onSurface,
+          logoW,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                children: [
-                  const TextSpan(text: 'Hedef: '),
-                  TextSpan(
-                    text: bilgi.hedefMetni,
-                    style: TextStyle(
-                      color: Colors.green.shade700,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
+                const SizedBox(height: 2),
+                RichText(
+                  text: TextSpan(children: spans),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-          if (bilgi.degisimMetni != null)
-            _DegisimRozeti(
-              metin: bilgi.degisimMetni!,
-              pozitif: bilgi.degisimPozitif ?? false,
-            ),
+          ),
         ],
       ),
     );
@@ -275,44 +325,6 @@ class _HisseBilgi {
     };
     final formatter = NumberFormat('#,##0.00', 'tr_TR');
     return '$sembol${formatter.format(deger)}';
-  }
-}
-
-class _DegisimRozeti extends StatelessWidget {
-  final String metin;
-  final bool pozitif;
-
-  const _DegisimRozeti({required this.metin, required this.pozitif});
-
-  @override
-  Widget build(BuildContext context) {
-    final renk = pozitif ? Colors.green.shade700 : Colors.red.shade700;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      decoration: BoxDecoration(
-        color: renk.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            pozitif ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-            size: 26,
-            color: renk,
-          ),
-          const SizedBox(width: 2),
-          Text(
-            metin,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              color: renk,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
