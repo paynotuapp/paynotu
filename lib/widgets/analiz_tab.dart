@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:pay/utils/paynotu_color.dart';
 import 'package:pay/widgets/panel_halk.dart';
 import 'package:pay/widgets/finansal_panel.dart';
@@ -47,6 +48,10 @@ class _AnalizTabState extends State<AnalizTab>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _HisseBasligi(
+          hisseData: widget.hisseData,
+          symbol: widget.symbol,
+        ),
+        _FiyatBolumu(
           hisseData: widget.hisseData,
           symbol: widget.symbol,
         ),
@@ -114,6 +119,207 @@ class _AnalizTabState extends State<AnalizTab>
   }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FİYAT BÖLÜMÜ
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FiyatBolumu extends StatelessWidget {
+  final Map<String, dynamic> hisseData;
+  final String symbol;
+
+  const _FiyatBolumu({required this.hisseData, required this.symbol});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final bilgi = _HisseBilgi.fromData(hisseData, symbol);
+    if (!bilgi.fiyatGorunsun) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 22,
+        runSpacing: 10,
+        children: [
+          if (bilgi.fiyatMetni != null)
+            Text(
+              bilgi.fiyatMetni!,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                height: 0.95,
+                letterSpacing: -2.4,
+                color: cs.onSurface,
+              ),
+            ),
+          if (bilgi.hedefMetni != null)
+            RichText(
+              text: TextSpan(
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                ),
+                children: [
+                  const TextSpan(text: 'Hedef: '),
+                  TextSpan(
+                    text: bilgi.hedefMetni,
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (bilgi.degisimMetni != null)
+            _DegisimRozeti(
+              metin: bilgi.degisimMetni!,
+              pozitif: bilgi.degisimPozitif ?? false,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+@immutable
+class _HisseBilgi {
+  final String isim;
+  final String symbol;
+  final String? fiyatMetni;
+  final String? hedefMetni;
+  final String? degisimMetni;
+  final bool? degisimPozitif;
+
+  const _HisseBilgi({
+    required this.isim,
+    required this.symbol,
+    required this.fiyatMetni,
+    required this.hedefMetni,
+    required this.degisimMetni,
+    required this.degisimPozitif,
+  });
+
+  bool get fiyatGorunsun =>
+      fiyatMetni != null || hedefMetni != null || degisimMetni != null;
+
+  factory _HisseBilgi.fromData(Map<String, dynamic> d, String symbol) {
+    final isim = _str(d['name']) ??
+        _str(d['short_name']) ??
+        _str(d['shortName']) ??
+        symbol;
+
+    final fiyat = _num(d['fiyat']) ??
+        _num(d['son_fiyat']) ??
+        _num(d['last_price']) ??
+        _num(d['price']) ??
+        _num(d['close']);
+
+    final hedef = _num(d['hedef_fiyat']) ??
+        _num(d['target_price']) ??
+        _num(d['analyst_target_price']);
+
+    final degisim = _num(d['haftalik_degisim_yuzde']) ??
+        _num(d['degisim_7g_yuzde']) ??
+        _num(d['weekly_change_percent']) ??
+        _num(d['weekly_change']);
+
+    final borsa = _str(d['borsa']) ??
+        _str(d['exchange']) ??
+        _borsaTahminEt(d) ??
+        'BIST';
+
+    final paraBirimi = _str(d['para_birimi']) ??
+        _str(d['currency']) ??
+        (borsa.toUpperCase().contains('BIST') ? 'TRY' : 'USD');
+
+    return _HisseBilgi(
+      isim: isim,
+      symbol: symbol,
+      fiyatMetni: _fiyatFormatla(fiyat, paraBirimi),
+      hedefMetni: _fiyatFormatla(hedef, paraBirimi),
+      degisimMetni: degisim == null
+          ? null
+          : '${degisim >= 0 ? '+' : ''}${degisim.toStringAsFixed(1)}% 7g',
+      degisimPozitif: degisim == null ? null : degisim >= 0,
+    );
+  }
+
+  static String? _str(dynamic v) {
+    if (v is String && v.trim().isNotEmpty) return v.trim();
+    return null;
+  }
+
+  static double? _num(dynamic v) {
+    if (v is num) return v.toDouble();
+    return null;
+  }
+
+  static String? _borsaTahminEt(Map<String, dynamic> d) {
+    final endeksler = d['endeksler'];
+    if (endeksler is List) {
+      final hasBist = endeksler.any(
+        (e) => e.toString().toUpperCase().contains('BIST'),
+      );
+      if (hasBist) return 'BIST';
+    }
+    return null;
+  }
+
+  static String? _fiyatFormatla(double? deger, String paraBirimi) {
+    if (deger == null) return null;
+    final sembol = switch (paraBirimi.toUpperCase()) {
+      'TRY' => '₺',
+      'TL' => '₺',
+      'USD' => '\$',
+      'EUR' => '€',
+      _ => '',
+    };
+    final formatter = NumberFormat('#,##0.00', 'tr_TR');
+    return '$sembol${formatter.format(deger)}';
+  }
+}
+
+class _DegisimRozeti extends StatelessWidget {
+  final String metin;
+  final bool pozitif;
+
+  const _DegisimRozeti({required this.metin, required this.pozitif});
+
+  @override
+  Widget build(BuildContext context) {
+    final renk = pozitif ? Colors.green.shade700 : Colors.red.shade700;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: renk.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            pozitif ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+            size: 26,
+            color: renk,
+          ),
+          const SizedBox(width: 2),
+          Text(
+            metin,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: renk,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HİSSE BAŞLIĞI — detay_screen.dart header ile birebir
