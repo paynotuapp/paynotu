@@ -181,27 +181,36 @@ class FinansalPanel extends StatelessWidget {
         _rsi14 == null;
 
     if (veriYok) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.bar_chart_outlined,
-                size: 48,
-                color: cs.onSurfaceVariant,
+      return SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 40, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.bar_chart_outlined,
+                    size: 48,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Finansal veri henüz yok',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                'Finansal veri henüz yok',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _GetiriPerformansBolumu(hisseData: hisseData),
+            ),
+          ],
         ),
       );
     }
@@ -327,6 +336,9 @@ class FinansalPanel extends StatelessWidget {
           ],
           // ── Fundamental Engine Skoru ─────────────────────────────
           _FundamentalSkorBolumu(hisseData: hisseData),
+
+          // ── Getiri Performansı ────────────────────────────────
+          _GetiriPerformansBolumu(hisseData: hisseData),
 
           const SizedBox(height: 24),
         ],
@@ -899,5 +911,168 @@ class _RadarPainter extends CustomPainter {
     return old.degerler != degerler ||
         old.etiketler != etiketler ||
         old.renk != renk;
+  }
+}
+
+// ── Getiri Performansı bölümü ─────────────────────────────────────────────────
+class _GetiriPerformansBolumu extends StatelessWidget {
+  final Map<String, dynamic> hisseData;
+  const _GetiriPerformansBolumu({required this.hisseData});
+
+  static const _donemler = <(String, String)>[
+    ('1 Gün',   'gunluk_degisim_yuzde'),
+    ('1 Hafta', 'haftalik_degisim_yuzde'),
+    ('1 Ay',    'aylik_degisim_yuzde'),
+    ('3 Ay',    'uc_ay_degisim_yuzde'),
+    ('6 Ay',    'alti_ay_degisim_yuzde'),
+    ('YBB',     'ybb_degisim_yuzde'),
+    ('1 Yıl',   'yillik_degisim_yuzde'),
+  ];
+
+  double? _d(String key) {
+    final v = hisseData[key];
+    return v is num ? v.toDouble() : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final values = _donemler
+        .map((e) => (etiket: e.$1, deger: _d(e.$2)))
+        .toList();
+    final temettu = _d('temettu_verimi');
+
+    final maxAbs = values
+        .map((e) => e.deger?.abs() ?? 0.0)
+        .fold(0.0, math.max);
+    final normalizer = maxAbs > 0 ? maxAbs : 1.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const SizedBox(height: 8),
+        Text(
+          'Getiri Performansı',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final e in values)
+          _GetiriSatir(
+            etiket: e.etiket,
+            deger: e.deger,
+            normalizer: normalizer,
+          ),
+        if (temettu != null) ...[
+          const SizedBox(height: 2),
+          _GetiriSatir(
+            etiket: 'Temettü',
+            deger: temettu,
+            normalizer: normalizer,
+            isTemettu: true,
+          ),
+        ],
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+class _GetiriSatir extends StatelessWidget {
+  final String etiket;
+  final double? deger;
+  final double normalizer;
+  final bool isTemettu;
+
+  const _GetiriSatir({
+    required this.etiket,
+    required this.deger,
+    required this.normalizer,
+    this.isTemettu = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (deger == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 64,
+              child: Text(
+                etiket,
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ),
+            const Expanded(child: SizedBox.shrink()),
+            Text('—', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          ],
+        ),
+      );
+    }
+
+    final pozitif = isTemettu || deger! >= 0;
+    final barRenk = isTemettu
+        ? cs.primary
+        : pozitif
+            ? Colors.green.shade600
+            : Colors.red.shade600;
+
+    final barOran = (deger!.abs() / normalizer).clamp(0.0, 1.0);
+    final degerMetni = isTemettu
+        ? '%${deger!.toStringAsFixed(2)}'
+        : '${deger! >= 0 ? '+' : ''}${deger!.toStringAsFixed(2)}%';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(
+              etiket,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
+          ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: barOran < 0.05 ? 0.05 : barOran,
+                child: Container(
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: barRenk.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 76,
+            child: Text(
+              degerMetni,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isTemettu ? cs.onSurface : barRenk,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
