@@ -885,6 +885,9 @@ QUOTE_CACHE_TTL_SECONDS = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "60"))
 QUOTE_DELAY_MINUTES = int(os.getenv("QUOTE_DELAY_MINUTES", "15"))
 QUOTE_LOOKBACK_DAYS = int(os.getenv("QUOTE_LOOKBACK_DAYS", "450"))
 
+_DIVIDEND_YIELD_CACHE: dict[str, dict] = {}
+_DIVIDEND_YIELD_TTL_SECONDS = 24 * 60 * 60
+
 
 def _normalize_quote_ticker(ticker: str) -> str:
     """
@@ -1033,6 +1036,55 @@ def _beta_vs_xu100(stock_close: pd.Series) -> float | None:
         return None
 
 
+def _pct_change_from_close(close: pd.Series, n_back: int) -> float | None:
+    """close[-1] / close[-n_back] - 1 hesaplar. Veri yetersizse None döner."""
+    if len(close) < n_back:
+        return None
+    ref = float(close.iloc[-n_back])
+    if ref <= 0:
+        return None
+    return round((float(close.iloc[-1]) / ref - 1.0) * 100.0, 2)
+
+
+def _ytd_change_from_close(close: pd.Series) -> float | None:
+    """Yılın ilk işlem gününden bu yana yüzdesel değişim."""
+    current_year = date.today().year
+    year_data = close[close.index.year == current_year]
+    if year_data.empty:
+        return None
+    ref = float(year_data.iloc[0])
+    if ref <= 0:
+        return None
+    return round((float(close.iloc[-1]) / ref - 1.0) * 100.0, 2)
+
+
+def _get_dividend_yield_cached(symbol: str, son_fiyat: float) -> float | None:
+    """Son 12 ayın temettüsünü borsapy'den çeker, 24 saat cache'ler."""
+    now_ts = time.time()
+    cached = _DIVIDEND_YIELD_CACHE.get(symbol)
+    if cached is not None and (now_ts - cached["ts"]) <= _DIVIDEND_YIELD_TTL_SECONDS:
+        logger.debug(f"[dividend_cache] {symbol} cache hit → {cached['value']}")
+        return cached["value"]
+
+    result: float | None = None
+    try:
+        div = bp.Ticker(symbol).dividends
+        if div is not None and not div.empty and son_fiyat > 0:
+            one_year_ago = pd.Timestamp(date.today() - timedelta(days=365))
+            recent = div[pd.to_datetime(div.index) >= one_year_ago]
+            if not recent.empty:
+                col = "Amount" if "Amount" in recent.columns else recent.columns[0]
+                annual_div = float(recent[col].sum())
+                if annual_div > 0:
+                    result = round(annual_div / son_fiyat * 100.0, 2)
+    except Exception as e:
+        logger.warning(f"[dividend_cache] {symbol} temettü hatası: {e}")
+
+    _DIVIDEND_YIELD_CACHE[symbol] = {"value": result, "ts": now_ts}
+    logger.debug(f"[dividend_cache] {symbol} cache miss → {result}")
+    return result
+
+
 def _quote_payload_from_borsapy(ticker: str) -> dict:
     """
     Borsapy üzerinden fiyat verisi çeker.
@@ -1113,6 +1165,12 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         "fiyat": round(son_fiyat, 2),
         "gunluk_degisim_yuzde": round(gunluk_degisim_yuzde, 2),
         "haftalik_degisim_yuzde": round(haftalik_degisim_yuzde, 2),
+        "aylik_degisim_yuzde": _pct_change_from_close(close, 22),
+        "uc_ay_degisim_yuzde": _pct_change_from_close(close, 64),
+        "alti_ay_degisim_yuzde": _pct_change_from_close(close, 127),
+        "ybb_degisim_yuzde": _ytd_change_from_close(close),
+        "yillik_degisim_yuzde": _pct_change_from_close(close, 253),
+        "temettu_verimi": _get_dividend_yield_cached(ticker, son_fiyat),
         "toplam_islem_hacmi": _volume_for_last_close(df, close),
         "rsi_14": _rsi_14(close),
         "beta": _beta_vs_xu100(close),
