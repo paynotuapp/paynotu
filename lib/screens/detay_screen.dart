@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -98,10 +97,7 @@ class _DetayScreenState extends State<DetayScreen>
   static String get _apiBaseUrl {
     const envUrl = String.fromEnvironment('PAYNOTU_API_URL', defaultValue: '');
     if (envUrl.isNotEmpty) return envUrl;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8000';
-    }
-    return 'http://127.0.0.1:8000';
+    return 'https://paynotu-production.up.railway.app';
   }
 
   late final TabController _tabController;
