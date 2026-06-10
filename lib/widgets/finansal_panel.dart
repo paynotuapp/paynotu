@@ -528,13 +528,16 @@ class _FundamentalSkorBolumu extends StatelessWidget {
                 Text('Dönem: $finansalDonem',
                     style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
                 if (finansalAciklama != null && finansalAciklama.isNotEmpty) ...[
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 6),
                   GestureDetector(
                     onTap: () => _aciklamaGoster(context, finansalAciklama),
-                    child: Icon(
-                      Icons.info_outline,
-                      size: 14,
-                      color: cs.onSurfaceVariant,
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: cs.primary,
+                      ),
                     ),
                   ),
                 ],

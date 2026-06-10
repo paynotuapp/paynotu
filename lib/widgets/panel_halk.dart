@@ -1085,24 +1085,26 @@ class _SikayetSheetState extends State<_SikayetSheet> {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          ..._sebepler.keys.map((label) => GestureDetector(
-                onTap: () => setState(() => _secilen = label),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Row(
-                    children: [
-                      Radio<String>(
-                        value: label,
-                        groupValue: _secilen,
-                        onChanged: (v) => setState(() => _secilen = v),
+          RadioGroup<String>(
+            groupValue: _secilen,
+            onChanged: (v) => setState(() => _secilen = v),
+            child: Column(
+              children: _sebepler.keys.map((label) => GestureDetector(
+                    onTap: () => setState(() => _secilen = label),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        children: [
+                          Radio<String>(value: label),
+                          Expanded(
+                            child: Text(label, style: const TextStyle(fontSize: 14)),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: Text(label, style: const TextStyle(fontSize: 14)),
-                      ),
-                    ],
-                  ),
-                ),
-              )),
+                    ),
+                  )).toList(),
+            ),
+          ),
           if (_secilen == '📝 Diğer') ...[
             const SizedBox(height: 8),
             TextField(
