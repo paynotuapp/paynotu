@@ -373,6 +373,67 @@ class _FundamentalSkorBolumu extends StatelessWidget {
     }
   }
 
+  void _aciklamaGoster(BuildContext context, String aciklama) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+                  child: Text(
+                    'Finansal Açıklama',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ),
+                Divider(height: 1, color: cs.outlineVariant),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                    child: Text(
+                      aciklama,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurface,
+                        height: 1.6,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -461,8 +522,24 @@ class _FundamentalSkorBolumu extends StatelessWidget {
                   fontWeight: FontWeight.w600)),
           if (finansalDonem != null) ...[
             const SizedBox(height: 2),
-            Text('Dönem: $finansalDonem',
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Dönem: $finansalDonem',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                if (finansalAciklama != null && finansalAciklama.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () => _aciklamaGoster(context, finansalAciklama),
+                    child: Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
           const SizedBox(height: 4),
           for (final e in subskorAdlar.entries)
@@ -511,20 +588,6 @@ class _FundamentalSkorBolumu extends StatelessWidget {
                           context, piotroskiScore * 10.0 / 9.0))),
             ],
           ),
-        ],
-
-        // Açıklama
-        if (finansalAciklama != null && finansalAciklama.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Text('Açıklama',
-              style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(finansalAciklama,
-              style:
-                  TextStyle(fontSize: 12, color: cs.onSurface, height: 1.5)),
         ],
 
         const SizedBox(height: 8),
