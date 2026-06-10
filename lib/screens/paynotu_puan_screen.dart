@@ -976,10 +976,10 @@ class _HisseKartiState extends State<HisseKarti> {
     final logo     = widget.data['logo']            ?? '';
     final wr           = (widget.data['weightedRating'] ?? 0.0).toDouble();
     final yildiz       = (wr / 2).clamp(0.0, 5.0);
-    final paynotuRaw   = widget.data['paynotu_skoru'];
-    final paynotu      = paynotuRaw == null ? 0.0 : (paynotuRaw as num).toDouble();
-    final isNullScore  = paynotu == 0.0;
-    final spekGun      = spekGunAl(widget.data);
+    final paynotuRaw      = widget.data['paynotu_skoru'];
+    final double? paynotu = paynotuRaw == null ? null : (paynotuRaw as num).toDouble();
+    final bool hasPaynotu = widget.data['has_paynotu'] == true;
+    final bool skorVar    = hasPaynotu && paynotu != null;
 
     return Slidable(
       key: ValueKey(symbol),
@@ -1057,9 +1057,9 @@ class _HisseKartiState extends State<HisseKarti> {
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: isNullScore
-                ? Theme.of(context).colorScheme.surfaceContainerHighest
-                : Theme.of(context).colorScheme.surface,
+            color: skorVar
+                ? Theme.of(context).colorScheme.surface
+                : Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -1139,31 +1139,31 @@ class _HisseKartiState extends State<HisseKarti> {
                   padding: const EdgeInsets.symmetric(
                       vertical: 8, horizontal: 4),
                   decoration: BoxDecoration(
-                    color: (isNullScore || paynotu == 0.0)
-                        ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12)
-                        : PayNotuColors.forScore(paynotu),
+                    color: skorVar
+                        ? PayNotuColors.forScore(paynotu)
+                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isNullScore ? 'Null' : paynotu.toStringAsFixed(2),
+                        skorVar ? paynotu.toStringAsFixed(2) : '—',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
-                          color: isNullScore
-                              ? Theme.of(context).colorScheme.onSurfaceVariant
-                              : Colors.white,
+                          color: skorVar
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       Text(
                         'PayNotu',
                         style: TextStyle(
                             fontSize: 8,
-                            color: isNullScore
-                                ? Theme.of(context).colorScheme.onSurfaceVariant
-                                : Colors.white.withValues(alpha: 0.85),
+                            color: skorVar
+                                ? Colors.white.withValues(alpha: 0.85)
+                                : Theme.of(context).colorScheme.onSurfaceVariant,
                             height: 1.1),
                       ),
                     ],
