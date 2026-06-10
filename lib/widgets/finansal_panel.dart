@@ -295,7 +295,7 @@ class FinansalPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           _MetrikGrid(
             metrikler: [
               _MetrikVeri(
@@ -331,7 +331,7 @@ class FinansalPanel extends StatelessWidget {
             ],
           ),
           if (_rsi14 != null) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             _RsiKart(rsi: _rsi14!),
           ],
           // ── Fundamental Engine Skoru ─────────────────────────────
@@ -670,9 +670,9 @@ class _MetrikGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.count(
       crossAxisCount: 3,
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 1.15,
+      crossAxisSpacing: 6,
+      mainAxisSpacing: 6,
+      childAspectRatio: 1.35,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: metrikler.map((m) => _MetrikKart(veri: m)).toList(),
@@ -692,7 +692,7 @@ class _MetrikKart extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(8),
@@ -704,26 +704,30 @@ class _MetrikKart extends StatelessWidget {
           Text(
             veri.etiket,
             style: TextStyle(
-              fontSize: 11,
-              color: cs.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            veri.deger,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            veri.alt,
-            style: TextStyle(
               fontSize: 10,
               color: cs.onSurfaceVariant,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 1),
+          Text(
+            veri.deger,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            veri.alt,
+            style: TextStyle(
+              fontSize: 9,
+              color: cs.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -759,7 +763,7 @@ class _RsiKart extends StatelessWidget {
                 : cs.onSurfaceVariant;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(10),
@@ -772,7 +776,7 @@ class _RsiKart extends StatelessWidget {
               const Text(
                 'RSI 14',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -780,24 +784,24 @@ class _RsiKart extends StatelessWidget {
               Text(
                 rsi.toStringAsFixed(1),
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: renk,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
               value: (rsi / 100).clamp(0.0, 1.0).toDouble(),
-              minHeight: 8,
+              minHeight: 6,
               backgroundColor: cs.surfaceContainerHighest,
               valueColor: AlwaysStoppedAnimation<Color>(renk),
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Row(
             children: [
               Text(
