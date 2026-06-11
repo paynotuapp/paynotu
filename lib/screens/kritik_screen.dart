@@ -10,6 +10,7 @@ class KritikScreen extends StatelessWidget {
     final query = FirebaseFirestore.instance
         .collection('hisseler')
         .where('kap_aktif', isEqualTo: true)
+        .where('has_paynotu', isEqualTo: true)
         .orderBy('paynotu_skoru', descending: true)
         .limit(20);
 

@@ -10,7 +10,7 @@ class PopulerScreen extends StatelessWidget {
     final query = FirebaseFirestore.instance
         .collection('hisseler')
         .where('kap_aktif', isEqualTo: true)
-        .where('paynotu_skoru', isGreaterThan: 0)
+        .where('has_paynotu', isEqualTo: true)
         .orderBy('paynotu_skoru')
         .limit(20);
 
