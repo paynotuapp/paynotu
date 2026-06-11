@@ -23,7 +23,11 @@ Dinamik duygusal ağırlık:
   e_weight = min(e_weight, 0.10), f_weight = 1.0 - e_weight
 
 Veri yoksa:
-  f_raw is None or f_raw == 0.0 → paynotu_score = None (erken dönüş)
+  f_raw is None → paynotu_score = None (erken dönüş)
+
+Semantik:
+  f_raw == 0.0 geçerli minimum skordur — en temiz / en düşük riskli hisse.
+  0.0 hiçbir zaman "veri yok" anlamına gelmez.
 
 Düşük P = sakin / temiz
 Yüksek P = dikkat / anomali / risk
@@ -79,11 +83,13 @@ class PayNotuIntegrator:
         f_raw = financial.spek_score
 
         # ── Veri yoksa erken dönüş ───────────────────────────────────────────
-        if f_raw is None or f_raw == 0.0:
+        # Yalnızca f_raw is None gerçek "veri yok" durumudur.
+        # f_raw == 0.0 geçerli minimum skordur; hesaplama devam eder.
+        if f_raw is None:
             return PayNotuResult(
                 ticker=financial.ticker,
                 paynotu_score=None,
-                raw_spek_score=f_raw if f_raw is not None else 0.0,
+                raw_spek_score=0.0,
                 emotional_score=_BAYESIAN_NEUTRAL,
                 emotional_risk=10.0 - _BAYESIAN_NEUTRAL,
                 emotional_grip=0.0,

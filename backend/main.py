@@ -409,7 +409,7 @@ def daily_job(tickers: list[str] | None = None):
                     "e":     e_result,
                     "df":    df,
                     "kap":   kap_haber,
-                    "valid": f_result.spek_score is not None and f_result.spek_score > 0.0,
+                    "valid": f_result.spek_score is not None,
                     "error": None,
                 }
                 ok += 1
