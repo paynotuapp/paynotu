@@ -99,6 +99,24 @@
         { "fieldPath": "industry",  "order": "ASCENDING" },
         { "fieldPath": "symbol",    "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif",     "order": "ASCENDING" },
+        { "fieldPath": "has_paynotu",   "order": "ASCENDING" },
+        { "fieldPath": "paynotu_skoru", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hisseler",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kap_aktif",     "order": "ASCENDING" },
+        { "fieldPath": "has_paynotu",   "order": "ASCENDING" },
+        { "fieldPath": "paynotu_skoru", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
