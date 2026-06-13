@@ -1123,12 +1123,8 @@ class _FiyatAraligiKart extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 child: Text(
-                  'Teorik taban ve tavan; önceki kapanış, BIST fiyat marjı ve fiyat adımı esas alınarak hesaplanır. Resmi emir iletim limiti yerine bilgilendirme amaçlı yaklaşık teorik aralıktır.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: csi.onSurface,
-                    height: 1.6,
-                  ),
+                  'Teorik taban ve tavan; önceki kapanış, BIST fiyat marjı ve fiyat adımı esas alınarak hesaplanır.',
+                  style: TextStyle(fontSize: 13, color: csi.onSurface, height: 1.6),
                 ),
               ),
             ],
@@ -1142,119 +1138,74 @@ class _FiyatAraligiKart extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!_herhangiVarMi) return const SizedBox.shrink();
 
-    final cs = Theme.of(context).colorScheme;
-    final bant       = _n('yillik_bant_konum_yuzde');
-    final dipten     = _n('yillik_dipten_uzaklik_yuzde');
-    final zirveye    = _n('yillik_zirveye_uzaklik_yuzde');
+    final cs      = Theme.of(context).colorScheme;
+    final bant    = _n('yillik_bant_konum_yuzde');
+    final dipten  = _n('yillik_dipten_uzaklik_yuzde');
+    final zirveye = _n('yillik_zirveye_uzaklik_yuzde');
 
-    final bool gunIciVar    = _n('gun_ici_dusuk_fiyat') != null || _n('gun_ici_yuksek_fiyat') != null;
-    final bool onikAyVar    = _n('yillik_dip_fiyat') != null || _n('yillik_zirve_fiyat') != null;
-    final bool limitVar     = _n('teorik_taban_fiyat') != null || _n('teorik_tavan_fiyat') != null;
+    final bool gunIciVar = _n('gun_ici_dusuk_fiyat') != null || _n('gun_ici_yuksek_fiyat') != null;
+    final bool onikAyVar = _n('yillik_dip_fiyat') != null || _n('yillik_zirve_fiyat') != null;
+    final bool limitVar  = _n('teorik_taban_fiyat') != null || _n('teorik_tavan_fiyat') != null;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(10),
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      decoration: BoxDecoration(color: cs.surface, borderRadius: BorderRadius.circular(10)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                'Fiyat Aralığı',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurface,
-                ),
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: () => _aciklamaGoster(context),
-                child: Icon(Icons.info_outline, size: 15, color: cs.onSurfaceVariant),
-              ),
-            ],
+          Row(children: [
+            Text('Fiyat Aralığı',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cs.onSurface)),
+            const SizedBox(width: 4),
+            GestureDetector(
+              onTap: () => _aciklamaGoster(context),
+              child: Icon(Icons.info_outline, size: 13, color: cs.onSurfaceVariant),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          if (gunIciVar) _FaCompactSatir(
+            bolum: 'Gün İçi',
+            solEtiket: 'Düşük', solDeger: _fiyat(_n('gun_ici_dusuk_fiyat')),
+            sagEtiket: 'Yüksek', sagDeger: _fiyat(_n('gun_ici_yuksek_fiyat')),
           ),
-
-          if (gunIciVar) ...[
-            const SizedBox(height: 10),
-            _FaBolumBaslik(baslik: 'Gün İçi'),
-            const SizedBox(height: 4),
-            _FaIkiliSatir(
-              solEtiket: 'Düşük',
-              solDeger: _fiyat(_n('gun_ici_dusuk_fiyat')),
-              sagEtiket: 'Yüksek',
-              sagDeger: _fiyat(_n('gun_ici_yuksek_fiyat')),
-            ),
-          ],
-
-          if (onikAyVar) ...[
-            const SizedBox(height: 10),
-            _FaBolumBaslik(baslik: '12 Ay'),
-            const SizedBox(height: 4),
-            _FaIkiliSatir(
-              solEtiket: 'Dip',
-              solDeger: _fiyat(_n('yillik_dip_fiyat')),
-              sagEtiket: 'Zirve',
-              sagDeger: _fiyat(_n('yillik_zirve_fiyat')),
-            ),
-            if (bant != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(99),
-                      child: LinearProgressIndicator(
-                        value: (bant / 100).clamp(0.0, 1.0),
-                        minHeight: 6,
-                        backgroundColor: cs.surfaceContainerHighest,
-                        valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${bant.toStringAsFixed(1).replaceAll('.', ',')}%',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                ],
-              ),
-              if (dipten != null || zirveye != null) ...[
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(
-                      'Dipten ${_pctDirect(dipten)}',
-                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
-                    ),
-                    const Spacer(),
-                    Text(
-                      'Zirveye ${_pctDirect(zirveye)}',
-                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
-                    ),
-                  ],
+          if (gunIciVar && onikAyVar) const SizedBox(height: 4),
+          if (onikAyVar) _FaCompactSatir(
+            bolum: '12 Ay',
+            solEtiket: 'Dip', solDeger: _fiyat(_n('yillik_dip_fiyat')),
+            sagEtiket: 'Zirve', sagDeger: _fiyat(_n('yillik_zirve_fiyat')),
+          ),
+          if (onikAyVar && limitVar) const SizedBox(height: 4),
+          if (limitVar) _FaCompactSatir(
+            bolum: 'Limit',
+            solEtiket: 'Taban', solDeger: _fiyat(_n('teorik_taban_fiyat')),
+            sagEtiket: 'Tavan', sagDeger: _fiyat(_n('teorik_tavan_fiyat')),
+          ),
+          if (bant != null) ...[
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: (bant / 100).clamp(0.0, 1.0),
+                  minHeight: 4,
+                  backgroundColor: cs.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
                 ),
-              ],
+              )),
+              const SizedBox(width: 6),
+              Text('${bant.toStringAsFixed(1).replaceAll('.', ',')}%',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cs.onSurface)),
+            ]),
+            if (dipten != null || zirveye != null) ...[
+              const SizedBox(height: 3),
+              Row(children: [
+                Text('Dipten ${_pctDirect(dipten)}',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                const Spacer(),
+                Text('Zirveye ${_pctDirect(zirveye)}',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              ]),
             ],
-          ],
-
-          if (limitVar) ...[
-            const SizedBox(height: 10),
-            _FaBolumBaslik(baslik: 'Günlük Limit (Teorik)'),
-            const SizedBox(height: 4),
-            _FaIkiliSatir(
-              solEtiket: 'Taban',
-              solDeger: _fiyat(_n('teorik_taban_fiyat')),
-              sagEtiket: 'Tavan',
-              sagDeger: _fiyat(_n('teorik_tavan_fiyat')),
-            ),
           ],
         ],
       ),
@@ -1262,31 +1213,15 @@ class _FiyatAraligiKart extends StatelessWidget {
   }
 }
 
-class _FaBolumBaslik extends StatelessWidget {
-  final String baslik;
-  const _FaBolumBaslik({required this.baslik});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      baslik,
-      style: TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        letterSpacing: 0.3,
-      ),
-    );
-  }
-}
-
-class _FaIkiliSatir extends StatelessWidget {
+class _FaCompactSatir extends StatelessWidget {
+  final String bolum;
   final String solEtiket;
   final String solDeger;
   final String sagEtiket;
   final String sagDeger;
 
-  const _FaIkiliSatir({
+  const _FaCompactSatir({
+    required this.bolum,
     required this.solEtiket,
     required this.solDeger,
     required this.sagEtiket,
@@ -1296,32 +1231,29 @@ class _FaIkiliSatir extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final labelStyle = TextStyle(fontSize: 10, color: cs.onSurfaceVariant);
+    final valueStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurface);
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(solEtiket, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-              Text(
-                solDeger,
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface),
-              ),
-            ],
-          ),
+        SizedBox(
+          width: 52,
+          child: Text(bolum, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
         ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(sagEtiket, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-              Text(
-                sagDeger,
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface),
-              ),
-            ],
-          ),
-        ),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(solEtiket, style: labelStyle),
+            Text(solDeger, style: valueStyle),
+          ],
+        )),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(sagEtiket, style: labelStyle),
+            Text(sagDeger, style: valueStyle),
+          ],
+        )),
       ],
     );
   }
