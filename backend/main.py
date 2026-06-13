@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, date, timedelta
 
 import re
+import math
 import numpy as np
 import pandas as pd
 import requests as _requests
@@ -1085,6 +1086,25 @@ def _get_dividend_yield_cached(symbol: str, son_fiyat: float) -> float | None:
     return result
 
 
+def _bist_fiyat_adimi(fiyat: float) -> float:
+    """BIST Pay Piyasası resmi fiyat adımı (tick size), baz fiyata göre."""
+    if fiyat < 20:
+        return 0.01
+    if fiyat < 50:
+        return 0.02
+    if fiyat < 100:
+        return 0.05
+    if fiyat < 250:
+        return 0.10
+    if fiyat < 500:
+        return 0.25
+    if fiyat < 1000:
+        return 0.50
+    if fiyat < 2500:
+        return 1.00
+    return 2.50
+
+
 def _quote_payload_from_borsapy(ticker: str) -> dict:
     """
     Borsapy üzerinden fiyat verisi çeker.
@@ -1104,7 +1124,8 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
     start_date = (date.today() - timedelta(days=QUOTE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     try:
-        df = bp.Ticker(ticker).history(start=start_date, end=end_date)
+        t = bp.Ticker(ticker)
+        df = t.history(start=start_date, end=end_date)
     except Exception as e:
         logger.error(f"[quote] {ticker} borsapy hatası: {e}")
         raise HTTPException(
@@ -1160,6 +1181,110 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         else 0.0
     )
 
+    # ── Fiyat Aralığı alanları ──────────────────────────────────────────────
+    gun_ici_dusuk = gun_ici_yuksek = None
+    _fa_fast_info_ok = False
+    try:
+        fi = t.fast_info.todict()
+        dlow = fi.get("day_low")
+        dhigh = fi.get("day_high")
+        if dlow is not None:
+            gun_ici_dusuk = round(float(dlow), 2)
+        if dhigh is not None:
+            gun_ici_yuksek = round(float(dhigh), 2)
+        if gun_ici_dusuk is not None or gun_ici_yuksek is not None:
+            _fa_fast_info_ok = True
+    except Exception as e:
+        logger.warning(f"[quote] {ticker} fast_info hatası: {e}")
+
+    yillik_dip = yillik_zirve = None
+    _fa_ohlcv_ok = False
+    if "Low" in df.columns and "High" in df.columns:
+        try:
+            df252 = df.tail(252)
+            if not df252.empty:
+                low_min = df252["Low"].dropna()
+                high_max = df252["High"].dropna()
+                if not low_min.empty:
+                    yillik_dip = round(float(low_min.min()), 2)
+                if not high_max.empty:
+                    yillik_zirve = round(float(high_max.max()), 2)
+                if yillik_dip is not None or yillik_zirve is not None:
+                    _fa_ohlcv_ok = True
+        except Exception as e:
+            logger.warning(f"[quote] {ticker} OHLCV 12A hesap hatası: {e}")
+
+    bant_konum = dipten_uzaklik = zirveye_uzaklik = None
+    if yillik_dip is not None and yillik_zirve is not None and yillik_dip < yillik_zirve:
+        bant_konum = round(
+            max(0.0, min(100.0, (son_fiyat - yillik_dip) / (yillik_zirve - yillik_dip) * 100)),
+            2,
+        )
+    if yillik_dip is not None and yillik_dip > 0:
+        dipten_uzaklik = round(((son_fiyat / yillik_dip) - 1) * 100, 2)
+    if yillik_zirve is not None and yillik_zirve > 0:
+        zirveye_uzaklik = round(((son_fiyat / yillik_zirve) - 1) * 100, 2)
+
+    # Teorik taban/tavan — baz fiyat öncelik zinciri, BIST marjı, adıma içeri yuvarlanır
+    teorik_taban = teorik_tavan = None
+    teorik_marji: float | None = None
+    teorik_adim: float | None = None
+    teorik_limit_kaynagi: str | None = None
+    teorik_baz: float | None = None
+
+    try:
+        _info_obj = t.info
+        for _k in ('prev_close', 'previous_close', 'regularMarketPreviousClose'):
+            _v = _info_obj.get(_k)
+            if _v is not None:
+                try:
+                    _fv = float(_v)
+                    if _fv > 0:
+                        teorik_baz = _fv
+                        break
+                except (TypeError, ValueError):
+                    pass
+    except Exception as e:
+        logger.warning(f"[quote] {ticker} baz fiyat (info) hatası: {e}")
+
+    if teorik_baz is None and _fa_fast_info_ok:
+        try:
+            _fi_prev = fi.get('previous_close')
+            if _fi_prev is not None and float(_fi_prev) > 0:
+                teorik_baz = float(_fi_prev)
+        except Exception:
+            pass
+
+    if teorik_baz is None and len(close) >= 2 and onceki_fiyat > 0:
+        teorik_baz = onceki_fiyat
+
+    if teorik_baz is not None:
+        try:
+            _MARJI = 0.10
+            adim = _bist_fiyat_adimi(teorik_baz)
+            ham_taban = teorik_baz * (1 - _MARJI)
+            ham_tavan = teorik_baz * (1 + _MARJI)
+            teorik_taban = round(math.ceil(round(ham_taban / adim, 9)) * adim, 2)
+            teorik_tavan = round(math.floor(round(ham_tavan / adim, 9)) * adim, 2)
+            teorik_marji = 10.0
+            teorik_adim = adim
+            teorik_limit_kaynagi = "bist_marji_010_adim_yuvarlanmis"
+        except Exception as e:
+            logger.warning(f"[quote] {ticker} teorik limit hesap hatası: {e}")
+
+    # Resmi taban/tavan: borsapy doğrudan sağlamıyor → None
+    taban = tavan = None
+
+    if _fa_fast_info_ok and _fa_ohlcv_ok:
+        fa_kaynak: str | None = "borsapy_tradingview_fast_info_ohlcv"
+    elif _fa_ohlcv_ok:
+        fa_kaynak = "borsapy_tradingview_ohlcv"
+    elif _fa_fast_info_ok:
+        fa_kaynak = "partial"
+    else:
+        fa_kaynak = None
+    # ────────────────────────────────────────────────────────────────────────
+
     return {
         "symbol": ticker,
         "fiyat": round(son_fiyat, 2),
@@ -1174,6 +1299,22 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         "toplam_islem_hacmi": _volume_for_last_close(df, close),
         "rsi_14": _rsi_14(close),
         "beta": _beta_vs_xu100(close),
+        "gun_ici_dusuk_fiyat": gun_ici_dusuk,
+        "gun_ici_yuksek_fiyat": gun_ici_yuksek,
+        "yillik_dip_fiyat": yillik_dip,
+        "yillik_zirve_fiyat": yillik_zirve,
+        "taban_fiyat": taban,
+        "tavan_fiyat": tavan,
+        "teorik_taban_fiyat": teorik_taban,
+        "teorik_tavan_fiyat": teorik_tavan,
+        "fiyat_marji_yuzde": teorik_marji,
+        "fiyat_adimi": teorik_adim,
+        "teorik_limit_kaynagi": teorik_limit_kaynagi,
+        "teorik_limit_baz_fiyat": round(teorik_baz, 2) if teorik_baz is not None else None,
+        "yillik_bant_konum_yuzde": bant_konum,
+        "yillik_dipten_uzaklik_yuzde": dipten_uzaklik,
+        "yillik_zirveye_uzaklik_yuzde": zirveye_uzaklik,
+        "fiyat_araligi_kaynagi": fa_kaynak,
         "para_birimi": "TRY",
         "borsa": "BIST",
         "fiyat_kaynagi": "borsapy",
