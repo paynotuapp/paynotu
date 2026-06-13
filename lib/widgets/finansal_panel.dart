@@ -296,6 +296,8 @@ class FinansalPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
+          _FiyatAraligiKart(hisseData: hisseData),
+          const SizedBox(height: 8),
           _MetrikGrid(
             metrikler: [
               _MetrikVeri(
@@ -1048,6 +1050,278 @@ class _GetiriPerformansBolumu extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+// ── Fiyat Aralığı ─────────────────────────────────────────────────────────────
+class _FiyatAraligiKart extends StatelessWidget {
+  final Map<String, dynamic> hisseData;
+  const _FiyatAraligiKart({required this.hisseData});
+
+  double? _n(String key) {
+    final v = hisseData[key];
+    return v is num ? v.toDouble() : null;
+  }
+
+  String _fiyat(double? v) {
+    if (v == null) return '—';
+    return '₺${v.toStringAsFixed(2).replaceAll('.', ',')}';
+  }
+
+  String _pctDirect(double? v) {
+    if (v == null) return '—';
+    final sign = v >= 0 ? '+' : '';
+    return '$sign${v.toStringAsFixed(2).replaceAll('.', ',')}%';
+  }
+
+  bool get _herhangiVarMi =>
+      _n('gun_ici_dusuk_fiyat') != null ||
+      _n('gun_ici_yuksek_fiyat') != null ||
+      _n('yillik_dip_fiyat') != null ||
+      _n('yillik_zirve_fiyat') != null ||
+      _n('teorik_taban_fiyat') != null ||
+      _n('teorik_tavan_fiyat') != null;
+
+  void _aciklamaGoster(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        final csi = Theme.of(ctx).colorScheme;
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 6),
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: csi.onSurfaceVariant.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+                child: Text(
+                  'Fiyat Aralığı Hakkında',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: csi.onSurface,
+                  ),
+                ),
+              ),
+              Divider(height: 1, color: csi.outlineVariant),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: Text(
+                  'Teorik taban ve tavan; önceki kapanış, BIST fiyat marjı ve fiyat adımı esas alınarak hesaplanır. Resmi emir iletim limiti yerine bilgilendirme amaçlı yaklaşık teorik aralıktır.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: csi.onSurface,
+                    height: 1.6,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_herhangiVarMi) return const SizedBox.shrink();
+
+    final cs = Theme.of(context).colorScheme;
+    final bant       = _n('yillik_bant_konum_yuzde');
+    final dipten     = _n('yillik_dipten_uzaklik_yuzde');
+    final zirveye    = _n('yillik_zirveye_uzaklik_yuzde');
+
+    final bool gunIciVar    = _n('gun_ici_dusuk_fiyat') != null || _n('gun_ici_yuksek_fiyat') != null;
+    final bool onikAyVar    = _n('yillik_dip_fiyat') != null || _n('yillik_zirve_fiyat') != null;
+    final bool limitVar     = _n('teorik_taban_fiyat') != null || _n('teorik_tavan_fiyat') != null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Fiyat Aralığı',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => _aciklamaGoster(context),
+                child: Icon(Icons.info_outline, size: 15, color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+
+          if (gunIciVar) ...[
+            const SizedBox(height: 10),
+            _FaBolumBaslik(baslik: 'Gün İçi'),
+            const SizedBox(height: 4),
+            _FaIkiliSatir(
+              solEtiket: 'Düşük',
+              solDeger: _fiyat(_n('gun_ici_dusuk_fiyat')),
+              sagEtiket: 'Yüksek',
+              sagDeger: _fiyat(_n('gun_ici_yuksek_fiyat')),
+            ),
+          ],
+
+          if (onikAyVar) ...[
+            const SizedBox(height: 10),
+            _FaBolumBaslik(baslik: '12 Ay'),
+            const SizedBox(height: 4),
+            _FaIkiliSatir(
+              solEtiket: 'Dip',
+              solDeger: _fiyat(_n('yillik_dip_fiyat')),
+              sagEtiket: 'Zirve',
+              sagDeger: _fiyat(_n('yillik_zirve_fiyat')),
+            ),
+            if (bant != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: (bant / 100).clamp(0.0, 1.0),
+                        minHeight: 6,
+                        backgroundColor: cs.surfaceContainerHighest,
+                        valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${bant.toStringAsFixed(1).replaceAll('.', ',')}%',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              if (dipten != null || zirveye != null) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      'Dipten ${_pctDirect(dipten)}',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Zirveye ${_pctDirect(zirveye)}',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ],
+
+          if (limitVar) ...[
+            const SizedBox(height: 10),
+            _FaBolumBaslik(baslik: 'Günlük Limit (Teorik)'),
+            const SizedBox(height: 4),
+            _FaIkiliSatir(
+              solEtiket: 'Taban',
+              solDeger: _fiyat(_n('teorik_taban_fiyat')),
+              sagEtiket: 'Tavan',
+              sagDeger: _fiyat(_n('teorik_tavan_fiyat')),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FaBolumBaslik extends StatelessWidget {
+  final String baslik;
+  const _FaBolumBaslik({required this.baslik});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      baslik,
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        letterSpacing: 0.3,
+      ),
+    );
+  }
+}
+
+class _FaIkiliSatir extends StatelessWidget {
+  final String solEtiket;
+  final String solDeger;
+  final String sagEtiket;
+  final String sagDeger;
+
+  const _FaIkiliSatir({
+    required this.solEtiket,
+    required this.solDeger,
+    required this.sagEtiket,
+    required this.sagDeger,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(solEtiket, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              Text(
+                solDeger,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(sagEtiket, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              Text(
+                sagDeger,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
