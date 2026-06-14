@@ -1,7 +1,15 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+String get _compareApiBaseUrl {
+  const envUrl = String.fromEnvironment('PAYNOTU_API_URL', defaultValue: '');
+  if (envUrl.isNotEmpty) return envUrl;
+  return 'https://paynotu-production.up.railway.app';
+}
 
 class FinansalPanel extends StatelessWidget {
   final Map<String, dynamic> hisseData;
@@ -210,6 +218,13 @@ class FinansalPanel extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _GetiriPerformansBolumu(hisseData: hisseData),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _GetiriKarsilastirmasiKart(
+                symbol: (hisseData['symbol'] as String?) ?? '',
+                apiBaseUrl: _compareApiBaseUrl,
+              ),
+            ),
           ],
         ),
       );
@@ -341,6 +356,12 @@ class FinansalPanel extends StatelessWidget {
 
           // ── Getiri Performansı ────────────────────────────────
           _GetiriPerformansBolumu(hisseData: hisseData),
+
+          // ── Getiri Karşılaştırması ─────────────────────────────
+          _GetiriKarsilastirmasiKart(
+            symbol: (hisseData['symbol'] as String?) ?? '',
+            apiBaseUrl: _compareApiBaseUrl,
+          ),
 
           const SizedBox(height: 24),
         ],
@@ -1255,6 +1276,337 @@ class _FaCompactSatir extends StatelessWidget {
           ],
         )),
       ],
+    );
+  }
+}
+
+// ── Getiri Karşılaştırması ─────────────────────────────────────────────────────
+class _GetiriKarsilastirmasiKart extends StatefulWidget {
+  final String symbol;
+  final String apiBaseUrl;
+
+  const _GetiriKarsilastirmasiKart({
+    required this.symbol,
+    required this.apiBaseUrl,
+  });
+
+  @override
+  State<_GetiriKarsilastirmasiKart> createState() =>
+      _GetiriKarsilastirmasiKartState();
+}
+
+class _GetiriKarsilastirmasiKartState
+    extends State<_GetiriKarsilastirmasiKart> {
+  Map<String, dynamic>? _data;
+  bool _loading = true;
+  String _secilenDonem = '1A';
+
+  static const _donemler = ['1G', '1H', '1A', '3A', '6A', 'YBB', '1Y'];
+  static const _varliklarSira = [
+    'symbol', 'altin', 'usdtry', 'eurtry', 'bist100', 'faiz'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    if (widget.symbol.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final uri =
+          Uri.parse('${widget.apiBaseUrl}/compare/${widget.symbol}');
+      final response = await http
+          .get(uri, headers: const {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200 && mounted) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          setState(() {
+            _data = decoded;
+            _loading = false;
+          });
+          return;
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _infoGoster(BuildContext context) {
+    final notlar = (_data?['notes'] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        [
+          'Altın değeri ons altın fiyatının TCMB USD kuru ile TL/gram karşılığına çevrilmesiyle hesaplanır.',
+          'Faiz değeri TCMB AOFM yıllık oranından basit dönemsel orana çevrilmiştir; politika faizi değildir.',
+        ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        final csi = Theme.of(ctx).colorScheme;
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 6),
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: csi.onSurfaceVariant.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+                child: Text(
+                  'Getiri Karşılaştırması Hakkında',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: csi.onSurface,
+                  ),
+                ),
+              ),
+              Divider(height: 1, color: csi.outlineVariant),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                child: Text(
+                  'Bu tablo, seçili hissenin geçmiş dönem getirilerini altın, döviz, BIST 100 ve TCMB AOFM ile karşılaştırır. Geleceğe yönelik beklenti veya yatırım tavsiyesi içermez.',
+                  style: TextStyle(
+                      fontSize: 13, color: csi.onSurface, height: 1.5),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: notlar
+                      .map(
+                        (n) => Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('• ',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: csi.onSurfaceVariant)),
+                              Expanded(
+                                child: Text(n,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: csi.onSurfaceVariant,
+                                        height: 1.5)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Map<String, String> _buildLabels() {
+    final labels = _data?['labels'] as Map<String, dynamic>?;
+    String lbl(String key, String fallback) {
+      final v = labels?[key];
+      return (v is String && v.isNotEmpty) ? v : fallback;
+    }
+
+    return {
+      'symbol': lbl('symbol', widget.symbol),
+      'altin': lbl('altin', 'Altın (TL/gr)'),
+      'usdtry': lbl('usdtry', 'USD/TRY'),
+      'eurtry': lbl('eurtry', 'EUR/TRY'),
+      'bist100': lbl('bist100', 'BIST 100'),
+      'faiz': lbl('faiz', 'Faiz (TCMB AOFM)'),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (_loading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          const SizedBox(height: 8),
+          Text('Getiri Karşılaştırması',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface)),
+          const SizedBox(height: 14),
+          Center(
+            child: SizedBox(
+              height: 18,
+              width: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: cs.primary),
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+      );
+    }
+
+    if (_data == null) return const SizedBox.shrink();
+
+    final periods = _data!['periods'] as Map<String, dynamic>?;
+    if (periods == null) return const SizedBox.shrink();
+
+    final donemData = periods[_secilenDonem] as Map<String, dynamic>?;
+    final labels = _buildLabels();
+
+    final hepsiNull = _varliklarSira.every((k) => donemData?[k] == null);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const SizedBox(height: 8),
+
+        Row(children: [
+          Text('Getiri Karşılaştırması',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface)),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: () => _infoGoster(context),
+            child: Icon(Icons.info_outline, size: 14, color: cs.onSurfaceVariant),
+          ),
+        ]),
+
+        const SizedBox(height: 8),
+
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _donemler.map((d) {
+              final secili = d == _secilenDonem;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: GestureDetector(
+                  onTap: () => setState(() => _secilenDonem = d),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: secili ? cs.primary : cs.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: secili ? cs.primary : cs.outlineVariant,
+                      ),
+                    ),
+                    child: Text(
+                      d,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight:
+                            secili ? FontWeight.w600 : FontWeight.normal,
+                        color: secili ? Colors.white : cs.onSurface,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        if (hepsiNull)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('Karşılaştırma verisi yok',
+                style:
+                    TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          )
+        else
+          for (final key in _varliklarSira)
+            _KarsilastirmaSatir(
+              etiket: labels[key] ?? key,
+              deger: (donemData?[key] as num?)?.toDouble(),
+            ),
+
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+class _KarsilastirmaSatir extends StatelessWidget {
+  final String etiket;
+  final double? deger;
+
+  const _KarsilastirmaSatir({required this.etiket, required this.deger});
+
+  String _fmt(double? v) {
+    if (v == null) return '—';
+    final s = v.abs().toStringAsFixed(2).replaceAll('.', ',');
+    return v >= 0 ? '+$s%' : '-$s%';
+  }
+
+  Color _renk(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (deger == null) return cs.onSurfaceVariant;
+    if (deger! > 0) return Colors.green.shade600;
+    if (deger! < 0) return Colors.red.shade600;
+    return cs.onSurfaceVariant;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final renk = _renk(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              etiket,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            _fmt(deger),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: renk,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
