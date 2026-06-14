@@ -1368,6 +1368,300 @@ def get_quote(ticker: str):
     }
 
 
+# ── GETİRİ KARŞILAŞTIRMASI ────────────────────────────────────────────────────
+
+_COMPARE_CACHE: dict[str, dict] = {}
+_COMPARE_CACHE_TTL = 60 * 60  # 60 dakika
+
+
+def _safe_float(v) -> float | None:
+    try:
+        f = float(v)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def _calculate_period_returns(series: pd.Series) -> dict:
+    """Tarihe göre sıralı fiyat serisinden dönemsel getiri yüzdeleri (%) üretir."""
+    PERIODS = ("1G", "1H", "1A", "3A", "6A", "YBB", "1Y")
+    result: dict = {p: None for p in PERIODS}
+    if series is None or len(series) < 2:
+        return result
+
+    son = series.iloc[-1]
+    for period, n in {"1G": 1, "1H": 5, "1A": 21, "3A": 63, "6A": 126, "1Y": 252}.items():
+        if len(series) > n:
+            baz = _safe_float(series.iloc[-(n + 1)])
+            if baz and baz > 0:
+                result[period] = round((son / baz - 1) * 100, 2)
+
+    try:
+        ytd = series[series.index >= pd.Timestamp(f"{date.today().year}-01-01")]
+        if len(ytd) >= 2:
+            baz_ytd = _safe_float(ytd.iloc[0])
+            if baz_ytd and baz_ytd > 0:
+                result["YBB"] = round((son / baz_ytd - 1) * 100, 2)
+    except Exception:
+        pass
+
+    return result
+
+
+def _calculate_simple_interest_returns(annual_rate: float) -> dict:
+    """Yıllık basit faiz oranından (%) dönemsel getiri yüzdeleri üretir."""
+    PERIODS = ("1G", "1H", "1A", "3A", "6A", "YBB", "1Y")
+    result: dict = {p: None for p in PERIODS}
+    if annual_rate is None:
+        return result
+    for period, days in {"1G": 1, "1H": 7, "1A": 30, "3A": 91, "6A": 182, "1Y": 365}.items():
+        result[period] = round(annual_rate / 365 * days, 2)
+    ytd_days = max((date.today() - date(date.today().year, 1, 1)).days, 1)
+    result["YBB"] = round(annual_rate / 365 * ytd_days, 2)
+    return result
+
+
+def _fetch_evds_series(series_name: str, start_date: str, end_date: str) -> pd.Series | None:
+    """EVDS API'den günlük seri çeker. Tarihler 'DD-MM-YYYY' formatında olmalı."""
+    api_key = os.getenv("TCMB_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from evds import evdsAPI
+        client = evdsAPI(api_key)
+        df = client.get_data([series_name], startdate=start_date, enddate=end_date)
+        if df is None or df.empty or "Tarih" not in df.columns:
+            return None
+        col = series_name if series_name in df.columns else next(
+            (c for c in df.columns if c not in ("Tarih", "UNIXTIME")), None
+        )
+        if col is None:
+            return None
+        s = pd.Series(
+            pd.to_numeric(df[col], errors="coerce").values,
+            index=pd.to_datetime(df["Tarih"], dayfirst=True, errors="coerce"),
+        ).dropna()
+        s = s[~s.index.isna()]
+        s.index = pd.DatetimeIndex([d.date() for d in s.index])
+        s = s[s > 0].sort_index()
+        return s if not s.empty else None
+    except Exception as ex:
+        logger.warning(f"[compare] EVDS {series_name} hatası: {ex}")
+        return None
+
+
+def _fetch_borsapy_ohlcv(symbol: str, lookback_days: int = 450) -> pd.Series | None:
+    """borsapy OHLCV geçmişinden Close serisi döner."""
+    try:
+        end_dt   = date.today().strftime("%Y-%m-%d")
+        start_dt = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+        df = bp.Ticker(symbol).history(start=start_dt, end=end_dt)
+        if df is None or df.empty:
+            return None
+        return _close_series(df)
+    except Exception as ex:
+        logger.warning(f"[compare] {symbol} borsapy hatası: {ex}")
+        return None
+
+
+def _fetch_gold_try_series(lookback_days: int = 450) -> pd.Series | None:
+    """yfinance GC=F × EVDS USD/TRY → TL/gram altın serisi döner."""
+    try:
+        import yfinance as yf
+        end_dt   = date.today()
+        start_dt = end_dt - timedelta(days=lookback_days + 30)
+
+        gc_df = yf.Ticker("GC=F").history(
+            start=start_dt.strftime("%Y-%m-%d"),
+            end=end_dt.strftime("%Y-%m-%d"),
+        )
+        if gc_df is None or gc_df.empty or "Close" not in gc_df.columns:
+            return None
+
+        ons = gc_df["Close"].dropna().astype(float).copy()
+        ons.index = pd.DatetimeIndex([d.date() for d in ons.index])
+        ons = ons[ons > 0].sort_index()
+
+        usd_s = _fetch_evds_series(
+            "TP.DK.USD.A.YTL",
+            start_dt.strftime("%d-%m-%Y"),
+            end_dt.strftime("%d-%m-%Y"),
+        )
+        if usd_s is None or usd_s.empty:
+            return None
+
+        combined = pd.concat([ons.rename("ons"), usd_s.rename("usd")], axis=1, join="inner")
+        if combined.empty:
+            return None
+
+        gram = (combined["ons"] / 31.1035 * combined["usd"]).dropna()
+        gram = gram[gram > 0].sort_index()
+        return gram if not gram.empty else None
+    except Exception as ex:
+        logger.warning(f"[compare] Altın TRY hatası: {ex}")
+        return None
+
+
+def _compare_payload(symbol: str) -> dict:
+    PERIODS   = ("1G", "1H", "1A", "3A", "6A", "YBB", "1Y")
+    NULL_RET  = {p: None for p in PERIODS}
+    LOOKBACK  = 450
+    now       = datetime.now(timezone.utc).isoformat()
+    errors: list[str] = []
+    source_info: dict = {}
+
+    # ── Hisse ──
+    sym_ret = dict(NULL_RET)
+    try:
+        sym_s = _fetch_borsapy_ohlcv(symbol, LOOKBACK)
+        if sym_s is not None and len(sym_s) >= 2:
+            sym_ret = _calculate_period_returns(sym_s)
+            source_info["symbol"] = "borsapy_tradingview_ohlcv"
+        else:
+            errors.append(f"{symbol}: OHLCV verisi yetersiz")
+            source_info["symbol"] = "hata"
+    except Exception as ex:
+        errors.append(f"{symbol}: {ex}")
+        source_info["symbol"] = "hata"
+
+    # ── BIST100 ──
+    bist_ret = dict(NULL_RET)
+    try:
+        bist_s = _fetch_borsapy_ohlcv("XU100", LOOKBACK)
+        if bist_s is not None and len(bist_s) >= 2:
+            bist_ret = _calculate_period_returns(bist_s)
+            source_info["bist100"] = "borsapy_XU100"
+        else:
+            errors.append("XU100: veri yetersiz")
+            source_info["bist100"] = "hata"
+    except Exception as ex:
+        errors.append(f"XU100: {ex}")
+        source_info["bist100"] = "hata"
+
+    # ── EVDS varlıkları ──
+    usd_ret = dict(NULL_RET)
+    eur_ret = dict(NULL_RET)
+    alt_ret = dict(NULL_RET)
+    fiz_ret = dict(NULL_RET)
+
+    api_key    = os.getenv("TCMB_API_KEY")
+    evds_start = (date.today() - timedelta(days=LOOKBACK + 30)).strftime("%d-%m-%Y")
+    evds_end   = date.today().strftime("%d-%m-%Y")
+
+    if not api_key:
+        errors.append("TCMB_API_KEY eksik — EVDS verileri atlandı")
+        for k in ("usdtry", "eurtry", "altin", "faiz"):
+            source_info[k] = "hata_api_key_eksik"
+    else:
+        try:
+            usd_s = _fetch_evds_series("TP.DK.USD.A.YTL", evds_start, evds_end)
+            if usd_s is not None and len(usd_s) >= 2:
+                usd_ret = _calculate_period_returns(usd_s)
+                source_info["usdtry"] = "evds_TP.DK.USD.A.YTL"
+            else:
+                errors.append("USD/TRY: veri yetersiz")
+                source_info["usdtry"] = "hata"
+        except Exception as ex:
+            errors.append(f"USD/TRY: {ex}")
+            source_info["usdtry"] = "hata"
+
+        try:
+            eur_s = _fetch_evds_series("TP.DK.EUR.A.YTL", evds_start, evds_end)
+            if eur_s is not None and len(eur_s) >= 2:
+                eur_ret = _calculate_period_returns(eur_s)
+                source_info["eurtry"] = "evds_TP.DK.EUR.A.YTL"
+            else:
+                errors.append("EUR/TRY: veri yetersiz")
+                source_info["eurtry"] = "hata"
+        except Exception as ex:
+            errors.append(f"EUR/TRY: {ex}")
+            source_info["eurtry"] = "hata"
+
+        try:
+            alt_s = _fetch_gold_try_series(LOOKBACK)
+            if alt_s is not None and len(alt_s) >= 2:
+                alt_ret = _calculate_period_returns(alt_s)
+                source_info["altin"] = "yfinance_GC_F_x_evds_usdtry"
+            else:
+                errors.append("Altın TRY: veri yetersiz")
+                source_info["altin"] = "hata"
+        except Exception as ex:
+            errors.append(f"Altın: {ex}")
+            source_info["altin"] = "hata"
+
+        try:
+            fiz_s = _fetch_evds_series("TP.APIFON4", evds_start, evds_end)
+            if fiz_s is not None and not fiz_s.empty:
+                oran = _safe_float(fiz_s.iloc[-1])
+                if oran is not None:
+                    fiz_ret = _calculate_simple_interest_returns(oran)
+                    source_info["faiz"] = "evds_TP.APIFON4"
+                else:
+                    errors.append("Faiz: geçersiz oran değeri")
+                    source_info["faiz"] = "hata"
+            else:
+                errors.append("Faiz: veri alınamadı")
+                source_info["faiz"] = "hata"
+        except Exception as ex:
+            errors.append(f"Faiz: {ex}")
+            source_info["faiz"] = "hata"
+
+    periods = {
+        p: {
+            "symbol":  sym_ret[p],
+            "altin":   alt_ret[p],
+            "usdtry":  usd_ret[p],
+            "eurtry":  eur_ret[p],
+            "bist100": bist_ret[p],
+            "faiz":    fiz_ret[p],
+        }
+        for p in PERIODS
+    }
+
+    return {
+        "symbol":     symbol,
+        "updated_at": now,
+        "periods":    periods,
+        "labels": {
+            "symbol":  symbol,
+            "altin":   "Altın (TL/gr)",
+            "usdtry":  "USD/TRY",
+            "eurtry":  "EUR/TRY",
+            "bist100": "BIST 100",
+            "faiz":    "Faiz (TCMB AOFM)",
+        },
+        "source_info": source_info,
+        "notes": [
+            "Altın değeri ons altın fiyatının TCMB USD kuru ile TL/gram karşılığına çevrilmesiyle hesaplanır.",
+            "Faiz değeri TCMB AOFM yıllık oranından basit dönemsel orana çevrilmiştir; politika faizi değildir.",
+        ],
+        "errors": errors,
+    }
+
+
+@app.get("/compare/{symbol}")
+def get_compare(symbol: str):
+    """Hisse getirisini altın, döviz, BIST100 ve faiz ile karşılaştırır. 60 dk cache."""
+    symbol = _normalize_quote_ticker(symbol)
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol zorunlu")
+
+    now_ts = time.time()
+    cached = _COMPARE_CACHE.get(symbol)
+    if cached is not None:
+        age = now_ts - cached["ts"]
+        if age <= _COMPARE_CACHE_TTL:
+            return {
+                **cached["payload"],
+                "cache": True,
+                "cache_age_seconds": round(age, 1),
+            }
+
+    payload = _compare_payload(symbol)
+    _COMPARE_CACHE[symbol] = {"ts": now_ts, "payload": payload}
+    return {**payload, "cache": False, "cache_age_seconds": 0}
+
+
 @app.get("/")
 def anasayfa():
     return {

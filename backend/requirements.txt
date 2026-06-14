@@ -11,3 +11,5 @@ borsapy>=0.1.0
 cloudscraper>=1.2.71
 google-genai
 anthropic>=0.40.0
+evds>=0.4.0
+yfinance>=0.2
