@@ -883,12 +883,34 @@ def _yorumlar_oku(ticker: str, db) -> list[Review]:
 # - Aynı hisse için kısa süre içinde tekrar borsapy çağrısı yapmamak için
 #   in-memory cache kullanır.
 _QUOTE_CACHE: dict[str, dict] = {}
-QUOTE_CACHE_TTL_SECONDS = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "60"))
+QUOTE_CACHE_TTL_SECONDS = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "300"))
 QUOTE_DELAY_MINUTES = int(os.getenv("QUOTE_DELAY_MINUTES", "15"))
 QUOTE_LOOKBACK_DAYS = int(os.getenv("QUOTE_LOOKBACK_DAYS", "450"))
 
 _DIVIDEND_YIELD_CACHE: dict[str, dict] = {}
 _DIVIDEND_YIELD_TTL_SECONDS = 24 * 60 * 60
+
+# XU100 benchmark cache — beta hesabı için her /quote'ta yeniden çekilmez
+_BENCHMARK_CLOSE_CACHE: dict = {}
+_BENCHMARK_CLOSE_TTL = 30 * 60  # 30 dakika
+
+
+def _get_xu100_close_cached(start_date: str, end_date: str) -> pd.Series | None:
+    """XU100 Close serisini cache'den veya borsapy'den alır. 30 dk TTL."""
+    now_ts = time.time()
+    cached = _BENCHMARK_CLOSE_CACHE.get("XU100")
+    if cached is not None and (now_ts - cached["ts"]) <= _BENCHMARK_CLOSE_TTL:
+        return cached["close"]
+    try:
+        xu100_df = bp.Ticker("XU100").history(start=start_date, end=end_date)
+        close = _close_series(xu100_df)
+        if not close.empty:
+            _BENCHMARK_CLOSE_CACHE["XU100"] = {"ts": now_ts, "close": close}
+            logger.info("[benchmark_cache] XU100 guncellendi")
+            return close
+    except Exception as e:
+        logger.warning(f"[benchmark_cache] XU100 hatasi: {e}")
+    return None
 
 
 def _normalize_quote_ticker(ticker: str) -> str:
@@ -984,26 +1006,26 @@ def _rsi_14(close: pd.Series, period: int = 14) -> float | None:
     return round(float(rsi), 2)
 
 
-def _beta_vs_xu100(stock_close: pd.Series) -> float | None:
+def _beta_vs_xu100(stock_close: pd.Series, xu100_close: pd.Series | None = None) -> float | None:
     """
     Beta = hissenin günlük getirileri ile XU100 günlük getirilerinin kovaryansı
            / XU100 getirilerinin varyansı
 
     Firestore'a yazmaz. Quote endpoint yanıtına beta ekler.
+    xu100_close verilmezse cache'den veya borsapy'den çeker.
     """
     try:
         if stock_close is None or len(stock_close) < 60:
             return None
 
-        start_date = stock_close.index.min().strftime("%Y-%m-%d")
-        end_date = stock_close.index.max().strftime("%Y-%m-%d")
-
-        xu100_df = bp.Ticker("XU100").history(
-            start=start_date,
-            end=end_date,
-        )
-
-        xu100_close = _close_series(xu100_df)
+        if xu100_close is None:
+            start_date = stock_close.index.min().strftime("%Y-%m-%d")
+            end_date   = stock_close.index.max().strftime("%Y-%m-%d")
+            xu100_close = _get_xu100_close_cached(start_date, end_date)
+            if xu100_close is None:
+                # doğrudan çek (cache yazamadı)
+                xu100_df    = bp.Ticker("XU100").history(start=start_date, end=end_date)
+                xu100_close = _close_series(xu100_df)
 
         if xu100_close.empty or len(xu100_close) < 60:
             return None
@@ -1121,18 +1143,43 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         raise HTTPException(status_code=400, detail="ticker zorunlu")
 
     # Beta ve RSI için kısa pencere yetmez; varsayılan 450 takvim günü.
-    end_date = date.today().strftime("%Y-%m-%d")
+    end_date   = date.today().strftime("%Y-%m-%d")
     start_date = (date.today() - timedelta(days=QUOTE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
-    try:
-        t = bp.Ticker(ticker)
-        df = t.history(start=start_date, end=end_date)
-    except Exception as e:
-        logger.error(f"[quote] {ticker} borsapy hatası: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"{ticker} fiyat verisi şu an alınamadı",
-        )
+    # ── Paralel fetch: history, fast_info, info, XU100 ──────────────────────
+    _t0 = time.time()
+
+    def _do_history():
+        return bp.Ticker(ticker).history(start=start_date, end=end_date)
+
+    def _do_fast_info():
+        try:
+            return bp.Ticker(ticker).fast_info.todict()
+        except Exception as e:
+            logger.warning(f"[quote] {ticker} fast_info hatası: {e}")
+            return {}
+
+    def _do_info():
+        try:
+            return bp.Ticker(ticker).info
+        except Exception as e:
+            logger.warning(f"[quote] {ticker} info hatası: {e}")
+            return {}
+
+    def _do_xu100():
+        return _get_xu100_close_cached(start_date, end_date)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as _pool:
+        _fut_hist  = _pool.submit(_do_history)
+        _fut_fi    = _pool.submit(_do_fast_info)
+        _fut_info  = _pool.submit(_do_info)
+        _fut_xu100 = _pool.submit(_do_xu100)
+        df         = _fut_hist.result()
+        fi         = _fut_fi.result()
+        _info_obj  = _fut_info.result()
+        xu100_cl   = _fut_xu100.result()
+
+    logger.debug(f"[quote] {ticker} paralel fetch: {time.time() - _t0:.2f}s")
 
     if df is None or df.empty:
         raise HTTPException(
@@ -1186,8 +1233,7 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
     gun_ici_dusuk = gun_ici_yuksek = None
     _fa_fast_info_ok = False
     try:
-        fi = t.fast_info.todict()
-        dlow = fi.get("day_low")
+        dlow  = fi.get("day_low")
         dhigh = fi.get("day_high")
         if dlow is not None:
             gun_ici_dusuk = round(float(dlow), 2)
@@ -1196,7 +1242,7 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         if gun_ici_dusuk is not None or gun_ici_yuksek is not None:
             _fa_fast_info_ok = True
     except Exception as e:
-        logger.warning(f"[quote] {ticker} fast_info hatası: {e}")
+        logger.warning(f"[quote] {ticker} fast_info parse hatası: {e}")
 
     yillik_dip = yillik_zirve = None
     _fa_ohlcv_ok = False
@@ -1204,7 +1250,7 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         try:
             df252 = df.tail(252)
             if not df252.empty:
-                low_min = df252["Low"].dropna()
+                low_min  = df252["Low"].dropna()
                 high_max = df252["High"].dropna()
                 if not low_min.empty:
                     yillik_dip = round(float(low_min.min()), 2)
@@ -1234,7 +1280,6 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
     teorik_baz: float | None = None
 
     try:
-        _info_obj = t.info
         for _k in ('prev_close', 'previous_close', 'regularMarketPreviousClose'):
             _v = _info_obj.get(_k)
             if _v is not None:
@@ -1299,7 +1344,7 @@ def _quote_payload_from_borsapy(ticker: str) -> dict:
         "temettu_verimi": _get_dividend_yield_cached(ticker, son_fiyat),
         "toplam_islem_hacmi": _volume_for_last_close(df, close),
         "rsi_14": _rsi_14(close),
-        "beta": _beta_vs_xu100(close),
+        "beta": _beta_vs_xu100(close, xu100_cl),
         "gun_ici_dusuk_fiyat": gun_ici_dusuk,
         "gun_ici_yuksek_fiyat": gun_ici_yuksek,
         "yillik_dip_fiyat": yillik_dip,
