@@ -35,6 +35,12 @@ from daily_ohlcv import fetch_ohlcv_from_firestore, run_daily_ohlcv_update
 import borsapy as bp
 import uvicorn
 
+import warnings as _warnings
+with _warnings.catch_warnings():
+    _warnings.simplefilter("ignore", DeprecationWarning)
+    from borsapy._providers.isyatirim import IsYatirimProvider
+    from borsapy.exceptions import APIError as _IsyAPIError, TickerNotFoundError as _IsyTickerNotFound
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -890,6 +896,15 @@ QUOTE_LOOKBACK_DAYS = int(os.getenv("QUOTE_LOOKBACK_DAYS", "450"))
 _QUOTE_LITE_CACHE: dict[str, dict] = {}
 QUOTE_LITE_CACHE_TTL = 60  # saniye — anlık fiyat, sık yenilenir
 
+# İş Yatırım OneEndeks singleton — quote-lite birincil kaynağı
+_ISY_PROVIDER: IsYatirimProvider | None = None
+
+def _get_isy_provider() -> IsYatirimProvider:
+    global _ISY_PROVIDER
+    if _ISY_PROVIDER is None:
+        _ISY_PROVIDER = IsYatirimProvider()
+    return _ISY_PROVIDER
+
 _DIVIDEND_YIELD_CACHE: dict[str, dict] = {}
 _DIVIDEND_YIELD_TTL_SECONDS = 24 * 60 * 60
 
@@ -901,14 +916,121 @@ def _safe_pos_float(v) -> float | None:
         return None
 
 
-def _quote_lite_payload(ticker: str) -> dict:
+def _teorik_limitler(teorik_baz: float) -> dict:
+    """Baz fiyattan teorik taban/tavan hesaplar. Saf fonksiyon."""
+    try:
+        _MARJI = 0.10
+        adim = _bist_fiyat_adimi(teorik_baz)
+        taban = round(math.ceil(round(teorik_baz * (1 - _MARJI) / adim, 9)) * adim, 2)
+        tavan = round(math.floor(round(teorik_baz * (1 + _MARJI) / adim, 9)) * adim, 2)
+        return {
+            "teorik_taban_fiyat":     taban,
+            "teorik_tavan_fiyat":     tavan,
+            "fiyat_marji_yuzde":      10.0,
+            "fiyat_adimi":            adim,
+            "teorik_limit_kaynagi":   "bist_marji_010_adim_yuvarlanmis",
+            "teorik_limit_baz_fiyat": round(teorik_baz, 2),
+        }
+    except Exception:
+        return {
+            "teorik_taban_fiyat":     None,
+            "teorik_tavan_fiyat":     None,
+            "fiyat_marji_yuzde":      None,
+            "fiyat_adimi":            None,
+            "teorik_limit_kaynagi":   None,
+            "teorik_limit_baz_fiyat": None,
+        }
+
+
+def _quote_lite_via_isyatirim_full(ticker: str) -> dict:
     """
-    History çağrısı yapmadan hızlı fiyat verisi döner.
-    fast_info + info ile ~0.5s hedefi.
-    Döndürdüğü alanlar:
-      fiyat, gunluk_degisim_yuzde,
-      gun_ici_dusuk/yuksek_fiyat,
-      teorik_taban/tavan_fiyat, teorik_limit_baz_fiyat
+    İş Yatırım OneEndeks API üzerinden hızlı fiyat verisi döner.
+    Döner: {"payload": dict|None, "ticker_not_found": bool}
+    """
+    _t0 = time.time()
+    try:
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", DeprecationWarning)
+            q = _get_isy_provider().get_realtime_quote(ticker)
+
+        son_fiyat  = _safe_pos_float(q.get("last"))
+        teorik_baz = _safe_pos_float(q.get("close"))
+        gun_yuksek = _safe_pos_float(q.get("high"))
+        gun_dusuk  = _safe_pos_float(q.get("low"))
+        hacim      = q.get("volume")
+
+        if not son_fiyat:
+            return {"payload": None, "ticker_not_found": False}
+
+        gunluk_degisim: float | None = None
+        if son_fiyat and teorik_baz:
+            gunluk_degisim = round((son_fiyat / teorik_baz - 1) * 100, 2)
+        else:
+            raw_chp = q.get("change_percent")
+            if raw_chp is not None:
+                try:
+                    gunluk_degisim = round(float(raw_chp), 2)
+                except (TypeError, ValueError):
+                    pass
+
+        limitler = _teorik_limitler(teorik_baz) if teorik_baz else {
+            "teorik_taban_fiyat": None, "teorik_tavan_fiyat": None,
+            "fiyat_marji_yuzde": None, "fiyat_adimi": None,
+            "teorik_limit_kaynagi": None, "teorik_limit_baz_fiyat": None,
+        }
+
+        guncelleme_str: str | None = None
+        if q.get("update_time"):
+            try:
+                guncelleme_str = q["update_time"].isoformat()
+            except Exception:
+                pass
+
+        elapsed_ms = round((time.time() - _t0) * 1000)
+        logger.info(f"[quote-lite] {ticker} isyatirim: {elapsed_ms}ms")
+
+        payload = {
+            "symbol":                  ticker,
+            "fiyat":                   round(son_fiyat, 2),
+            "gunluk_degisim_yuzde":    gunluk_degisim,
+            "gun_ici_dusuk_fiyat":     round(gun_dusuk, 2) if gun_dusuk else None,
+            "gun_ici_yuksek_fiyat":    round(gun_yuksek, 2) if gun_yuksek else None,
+            "onceki_kapanis":          round(teorik_baz, 2) if teorik_baz else None,
+            "toplam_islem_hacmi":      int(hacim) if hacim else None,
+            **limitler,
+            "para_birimi":             "TRY",
+            "borsa":                   "BIST",
+            "lite":                    True,
+            "fiyat_kaynagi":           "isyatirim_oneendeks",
+            "fiyat_araligi_kaynagi":   "isyatirim_oneendeks_quote_lite",
+            "fiyat_gecikme_dk":        0,
+            "fiyat_guncelleme_tarihi": guncelleme_str or datetime.now(timezone.utc).isoformat(),
+        }
+        return {"payload": payload, "ticker_not_found": False}
+
+    except _IsyTickerNotFound as e:
+        elapsed_ms = round((time.time() - _t0) * 1000)
+        logger.warning(f"[quote-lite] {ticker} isyatirim bulunamadi ({elapsed_ms}ms): {e}")
+        return {"payload": None, "ticker_not_found": True}
+    except _IsyAPIError as e:
+        elapsed_ms = round((time.time() - _t0) * 1000)
+        logger.warning(f"[quote-lite] {ticker} isyatirim api hata ({elapsed_ms}ms): {e}")
+        return {"payload": None, "ticker_not_found": False}
+    except Exception as e:
+        elapsed_ms = round((time.time() - _t0) * 1000)
+        logger.warning(f"[quote-lite] {ticker} isyatirim beklenmedik hata ({elapsed_ms}ms): {e}")
+        return {"payload": None, "ticker_not_found": False}
+
+
+# Eski isim alias — kod boyunca eski çağrı varsa çalışmaya devam etsin
+def _quote_lite_via_isyatirim(ticker: str) -> dict | None:
+    return _quote_lite_via_isyatirim_full(ticker)["payload"]
+
+
+def _quote_lite_via_borsapy(ticker: str) -> dict:
+    """
+    borsapy fast_info + info ile hızlı fiyat verisi döner (fallback).
+    Cold miss ~6-9s sürebilir.
     """
     def _do_fast_info():
         try:
@@ -924,15 +1046,28 @@ def _quote_lite_payload(ticker: str) -> dict:
             logger.warning(f"[quote-lite] {ticker} info hatası: {e}")
             return {}
 
+    _BORSAPY_LITE_TIMEOUT = 12  # saniye — geçerse boş dict döner
     _t0 = time.time()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        _fut_fi   = pool.submit(_do_fast_info)
-        _fut_info = pool.submit(_do_info)
-        fi        = _fut_fi.result()
-        info_obj  = _fut_info.result()
-    logger.debug(f"[quote-lite] {ticker} fetch: {time.time() - _t0:.2f}s")
+    _pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    try:
+        _fut_fi   = _pool.submit(_do_fast_info)
+        _fut_info = _pool.submit(_do_info)
+        try:
+            fi       = _fut_fi.result(timeout=_BORSAPY_LITE_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            fi = {}
+            logger.warning(f"[quote-lite] {ticker} borsapy fast_info timeout")
+        try:
+            info_obj = _fut_info.result(timeout=_BORSAPY_LITE_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            info_obj = {}
+            logger.warning(f"[quote-lite] {ticker} borsapy info timeout")
+    finally:
+        _pool.shutdown(wait=False)  # takılı thread'leri bekleme
 
-    # ── Anlık fiyat ────────────────────────────────────────────────────────
+    elapsed_ms = round((time.time() - _t0) * 1000)
+    logger.info(f"[quote-lite] {ticker} borsapy fallback: {elapsed_ms}ms")
+
     son_fiyat: float | None = None
     for k in ('last_price', 'regularMarketPrice', 'currentPrice', 'price'):
         son_fiyat = _safe_pos_float(fi.get(k))
@@ -944,7 +1079,6 @@ def _quote_lite_payload(ticker: str) -> dict:
             if son_fiyat:
                 break
 
-    # ── Önceki kapanış (teorik limit + günlük değişim baz) ─────────────────
     teorik_baz: float | None = None
     for k in ('previous_close', 'regularMarketPreviousClose', 'prev_close'):
         teorik_baz = _safe_pos_float(fi.get(k))
@@ -956,7 +1090,6 @@ def _quote_lite_payload(ticker: str) -> dict:
             if teorik_baz:
                 break
 
-    # ── Günlük değişim ─────────────────────────────────────────────────────
     gunluk_degisim: float | None = None
     if son_fiyat and teorik_baz:
         gunluk_degisim = round((son_fiyat / teorik_baz - 1) * 100, 2)
@@ -970,47 +1103,59 @@ def _quote_lite_payload(ticker: str) -> dict:
                 except (TypeError, ValueError):
                     pass
 
-    # ── Gün içi aralık ─────────────────────────────────────────────────────
     gun_ici_dusuk  = _safe_pos_float(fi.get('day_low'))
     gun_ici_yuksek = _safe_pos_float(fi.get('day_high'))
-    if gun_ici_dusuk:
-        gun_ici_dusuk  = round(gun_ici_dusuk, 2)
-    if gun_ici_yuksek:
-        gun_ici_yuksek = round(gun_ici_yuksek, 2)
 
-    # ── Teorik taban/tavan ─────────────────────────────────────────────────
-    teorik_taban = teorik_tavan = None
-    teorik_marji = teorik_adim = teorik_kaynagi = None
-    if teorik_baz:
-        try:
-            _MARJI = 0.10
-            adim = _bist_fiyat_adimi(teorik_baz)
-            teorik_taban   = round(math.ceil(round(teorik_baz * (1 - _MARJI) / adim, 9)) * adim, 2)
-            teorik_tavan   = round(math.floor(round(teorik_baz * (1 + _MARJI) / adim, 9)) * adim, 2)
-            teorik_marji   = 10.0
-            teorik_adim    = adim
-            teorik_kaynagi = "bist_marji_010_adim_yuvarlanmis"
-        except Exception as e:
-            logger.warning(f"[quote-lite] {ticker} teorik limit hatası: {e}")
+    limitler = _teorik_limitler(teorik_baz) if teorik_baz else {
+        "teorik_taban_fiyat": None, "teorik_tavan_fiyat": None,
+        "fiyat_marji_yuzde": None, "fiyat_adimi": None,
+        "teorik_limit_kaynagi": None, "teorik_limit_baz_fiyat": None,
+    }
 
     return {
         "symbol":                  ticker,
         "fiyat":                   round(son_fiyat, 2) if son_fiyat else None,
         "gunluk_degisim_yuzde":    gunluk_degisim,
-        "gun_ici_dusuk_fiyat":     gun_ici_dusuk,
-        "gun_ici_yuksek_fiyat":    gun_ici_yuksek,
-        "teorik_taban_fiyat":      teorik_taban,
-        "teorik_tavan_fiyat":      teorik_tavan,
-        "fiyat_marji_yuzde":       teorik_marji,
-        "fiyat_adimi":             teorik_adim,
-        "teorik_limit_kaynagi":    teorik_kaynagi,
-        "teorik_limit_baz_fiyat":  round(teorik_baz, 2) if teorik_baz else None,
+        "gun_ici_dusuk_fiyat":     round(gun_ici_dusuk, 2) if gun_ici_dusuk else None,
+        "gun_ici_yuksek_fiyat":    round(gun_ici_yuksek, 2) if gun_ici_yuksek else None,
+        "onceki_kapanis":          round(teorik_baz, 2) if teorik_baz else None,
+        "toplam_islem_hacmi":      None,
+        **limitler,
         "para_birimi":             "TRY",
         "borsa":                   "BIST",
         "lite":                    True,
+        "fiyat_kaynagi":           "borsapy_fallback",
+        "fiyat_araligi_kaynagi":   "borsapy_fallback",
         "fiyat_gecikme_dk":        QUOTE_DELAY_MINUTES,
         "fiyat_guncelleme_tarihi": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _quote_lite_payload(ticker: str) -> dict:
+    """
+    İş Yatırım OneEndeks birincil kaynak (~30–70ms cold).
+    TickerNotFoundError → borsapy'e düşme (sembol her iki sistemde de yok).
+    Diğer İş Yatırım hatalar → borsapy fallback (~6–9s cold).
+    """
+    _isy_result = _quote_lite_via_isyatirim_full(ticker)
+    if _isy_result["payload"] is not None:
+        return _isy_result["payload"]
+    if _isy_result["ticker_not_found"]:
+        # Symbol her iki sistemde de yok — hızlı boş döndür
+        logger.warning(f"[quote-lite] {ticker} iki sistemde de bulunamadi, null payload")
+        return {
+            "symbol": ticker, "fiyat": None, "gunluk_degisim_yuzde": None,
+            "gun_ici_dusuk_fiyat": None, "gun_ici_yuksek_fiyat": None,
+            "onceki_kapanis": None, "toplam_islem_hacmi": None,
+            "teorik_taban_fiyat": None, "teorik_tavan_fiyat": None,
+            "fiyat_marji_yuzde": None, "fiyat_adimi": None,
+            "teorik_limit_kaynagi": None, "teorik_limit_baz_fiyat": None,
+            "para_birimi": "TRY", "borsa": "BIST", "lite": True,
+            "fiyat_kaynagi": "not_found", "fiyat_araligi_kaynagi": "not_found",
+            "fiyat_gecikme_dk": 0,
+            "fiyat_guncelleme_tarihi": datetime.now(timezone.utc).isoformat(),
+        }
+    return _quote_lite_via_borsapy(ticker)
 
 
 # XU100 benchmark cache — beta hesabı için her /quote'ta yeniden çekilmez
@@ -1540,9 +1685,9 @@ def get_quote(ticker: str):
 @app.get("/quote-lite/{ticker}")
 def get_quote_lite(ticker: str):
     """
-    Hızlı fiyat endpoint'i — history çağrısı olmadan fast_info + info kullanır.
-    Header fiyat, gün içi aralık, teorik taban/tavan döner (~0.5s hedef).
-    Ağır alanlar (getiriler, RSI, beta, 12A dip/zirve) için /quote kullanın.
+    Hızlı fiyat endpoint'i — İş Yatırım OneEndeks birincil (~30–70ms),
+    borsapy fallback (~6–9s). Header fiyat, gün içi aralık, teorik limit döner.
+    Ağır alanlar (RSI, beta, 12A dip/zirve, uzun dönem getiriler) için /quote kullanın.
     """
     ticker = _normalize_quote_ticker(ticker)
     if not ticker:
