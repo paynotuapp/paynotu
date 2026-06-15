@@ -6,6 +6,7 @@ import json
 import base64
 import logging
 import time
+import concurrent.futures
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, date, timedelta
 
@@ -1373,6 +1374,67 @@ def get_quote(ticker: str):
 _COMPARE_CACHE: dict[str, dict] = {}
 _COMPARE_CACHE_TTL = 60 * 60  # 60 dakika
 
+# Sembol bağımsız piyasa verisi cache (XU100, USD, EUR, altın, faiz)
+_MARKET_DATA_CACHE: dict = {}
+_MARKET_CACHE_TTL = 60 * 60  # 60 dakika
+
+
+def _fetch_market_data(lookback: int, evds_start: str, evds_end: str, api_key: str | None) -> dict:
+    """
+    XU100, USD/TRY, EUR/TRY, altın ve faiz verilerini paralel olarak çeker.
+    Sonuçlar _MARKET_DATA_CACHE'e yazılır; TTL geçmedikçe tekrar fetch edilmez.
+    """
+    now_ts = time.time()
+    cached = _MARKET_DATA_CACHE.get("data")
+    if cached is not None and (now_ts - cached["ts"]) <= _MARKET_CACHE_TTL:
+        return cached
+
+    m: dict = {
+        "ts":        now_ts,
+        "bist100":   None,
+        "usdtry":    None,
+        "eurtry":    None,
+        "altin":     None,
+        "faiz_oran": None,
+    }
+
+    def _do_bist():
+        return _fetch_borsapy_ohlcv("XU100", lookback)
+
+    def _do_usd():
+        return _fetch_evds_series("TP.DK.USD.A.YTL", evds_start, evds_end)
+
+    def _do_eur():
+        return _fetch_evds_series("TP.DK.EUR.A.YTL", evds_start, evds_end)
+
+    def _do_gold():
+        return _fetch_gold_try_series(lookback)
+
+    def _do_faiz():
+        s = _fetch_evds_series("TP.APIFON4", evds_start, evds_end)
+        if s is not None and not s.empty:
+            return _safe_float(s.iloc[-1])
+        return None
+
+    tasks: dict = {"bist100": _do_bist}
+    if api_key:
+        tasks["usdtry"]    = _do_usd
+        tasks["eurtry"]    = _do_eur
+        tasks["altin"]     = _do_gold
+        tasks["faiz_oran"] = _do_faiz
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {key: pool.submit(fn) for key, fn in tasks.items()}
+        for key, fut in futures.items():
+            try:
+                m[key] = fut.result()
+            except Exception as exc:
+                logger.warning(f"[market_cache] {key} hatası: {exc}")
+
+    _MARKET_DATA_CACHE["data"] = m
+    logger.info("[market_cache] Piyasa verisi güncellendi")
+    return m
+
 
 def _safe_float(v) -> float | None:
     try:
@@ -1510,100 +1572,77 @@ def _compare_payload(symbol: str) -> dict:
     errors: list[str] = []
     source_info: dict = {}
 
-    # ── Hisse ──
+    api_key    = os.getenv("TCMB_API_KEY")
+    evds_start = (date.today() - timedelta(days=LOOKBACK + 30)).strftime("%d-%m-%Y")
+    evds_end   = date.today().strftime("%d-%m-%Y")
+
+    # ── Hisse OHLCV + piyasa verisi paralel fetch ──────────────────────────────
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        fut_sym    = pool.submit(_fetch_borsapy_ohlcv, symbol, LOOKBACK)
+        fut_market = pool.submit(_fetch_market_data, LOOKBACK, evds_start, evds_end, api_key)
+        sym_s    = fut_sym.result()
+        market   = fut_market.result()
+
+    # ── Hisse getirisi ─────────────────────────────────────────────────────────
     sym_ret = dict(NULL_RET)
-    try:
-        sym_s = _fetch_borsapy_ohlcv(symbol, LOOKBACK)
-        if sym_s is not None and len(sym_s) >= 2:
-            sym_ret = _calculate_period_returns(sym_s)
-            source_info["symbol"] = "borsapy_tradingview_ohlcv"
-        else:
-            errors.append(f"{symbol}: OHLCV verisi yetersiz")
-            source_info["symbol"] = "hata"
-    except Exception as ex:
-        errors.append(f"{symbol}: {ex}")
+    if sym_s is not None and len(sym_s) >= 2:
+        sym_ret = _calculate_period_returns(sym_s)
+        source_info["symbol"] = "borsapy_tradingview_ohlcv"
+    else:
+        errors.append(f"{symbol}: OHLCV verisi yetersiz")
         source_info["symbol"] = "hata"
 
-    # ── BIST100 ──
+    # ── BIST100 ────────────────────────────────────────────────────────────────
     bist_ret = dict(NULL_RET)
-    try:
-        bist_s = _fetch_borsapy_ohlcv("XU100", LOOKBACK)
-        if bist_s is not None and len(bist_s) >= 2:
-            bist_ret = _calculate_period_returns(bist_s)
-            source_info["bist100"] = "borsapy_XU100"
-        else:
-            errors.append("XU100: veri yetersiz")
-            source_info["bist100"] = "hata"
-    except Exception as ex:
-        errors.append(f"XU100: {ex}")
+    bist_s = market.get("bist100")
+    if bist_s is not None and len(bist_s) >= 2:
+        bist_ret = _calculate_period_returns(bist_s)
+        source_info["bist100"] = "borsapy_XU100"
+    else:
+        errors.append("XU100: veri yetersiz")
         source_info["bist100"] = "hata"
 
-    # ── EVDS varlıkları ──
+    # ── EVDS varlıkları ────────────────────────────────────────────────────────
     usd_ret = dict(NULL_RET)
     eur_ret = dict(NULL_RET)
     alt_ret = dict(NULL_RET)
     fiz_ret = dict(NULL_RET)
-
-    api_key    = os.getenv("TCMB_API_KEY")
-    evds_start = (date.today() - timedelta(days=LOOKBACK + 30)).strftime("%d-%m-%Y")
-    evds_end   = date.today().strftime("%d-%m-%Y")
 
     if not api_key:
         errors.append("TCMB_API_KEY eksik — EVDS verileri atlandı")
         for k in ("usdtry", "eurtry", "altin", "faiz"):
             source_info[k] = "hata_api_key_eksik"
     else:
-        try:
-            usd_s = _fetch_evds_series("TP.DK.USD.A.YTL", evds_start, evds_end)
-            if usd_s is not None and len(usd_s) >= 2:
-                usd_ret = _calculate_period_returns(usd_s)
-                source_info["usdtry"] = "evds_TP.DK.USD.A.YTL"
-            else:
-                errors.append("USD/TRY: veri yetersiz")
-                source_info["usdtry"] = "hata"
-        except Exception as ex:
-            errors.append(f"USD/TRY: {ex}")
+        usd_s = market.get("usdtry")
+        if usd_s is not None and len(usd_s) >= 2:
+            usd_ret = _calculate_period_returns(usd_s)
+            source_info["usdtry"] = "evds_TP.DK.USD.A.YTL"
+        else:
+            errors.append("USD/TRY: veri yetersiz")
             source_info["usdtry"] = "hata"
 
-        try:
-            eur_s = _fetch_evds_series("TP.DK.EUR.A.YTL", evds_start, evds_end)
-            if eur_s is not None and len(eur_s) >= 2:
-                eur_ret = _calculate_period_returns(eur_s)
-                source_info["eurtry"] = "evds_TP.DK.EUR.A.YTL"
-            else:
-                errors.append("EUR/TRY: veri yetersiz")
-                source_info["eurtry"] = "hata"
-        except Exception as ex:
-            errors.append(f"EUR/TRY: {ex}")
+        eur_s = market.get("eurtry")
+        if eur_s is not None and len(eur_s) >= 2:
+            eur_ret = _calculate_period_returns(eur_s)
+            source_info["eurtry"] = "evds_TP.DK.EUR.A.YTL"
+        else:
+            errors.append("EUR/TRY: veri yetersiz")
             source_info["eurtry"] = "hata"
 
-        try:
-            alt_s = _fetch_gold_try_series(LOOKBACK)
-            if alt_s is not None and len(alt_s) >= 2:
-                alt_ret = _calculate_period_returns(alt_s)
-                source_info["altin"] = "yfinance_GC_F_x_evds_usdtry"
-            else:
-                errors.append("Altın TRY: veri yetersiz")
-                source_info["altin"] = "hata"
-        except Exception as ex:
-            errors.append(f"Altın: {ex}")
+        alt_s = market.get("altin")
+        if alt_s is not None and len(alt_s) >= 2:
+            alt_ret = _calculate_period_returns(alt_s)
+            source_info["altin"] = "yfinance_GC_F_x_evds_usdtry"
+        else:
+            errors.append("Altın TRY: veri yetersiz")
             source_info["altin"] = "hata"
 
-        try:
-            fiz_s = _fetch_evds_series("TP.APIFON4", evds_start, evds_end)
-            if fiz_s is not None and not fiz_s.empty:
-                oran = _safe_float(fiz_s.iloc[-1])
-                if oran is not None:
-                    fiz_ret = _calculate_simple_interest_returns(oran)
-                    source_info["faiz"] = "evds_TP.APIFON4"
-                else:
-                    errors.append("Faiz: geçersiz oran değeri")
-                    source_info["faiz"] = "hata"
-            else:
-                errors.append("Faiz: veri alınamadı")
-                source_info["faiz"] = "hata"
-        except Exception as ex:
-            errors.append(f"Faiz: {ex}")
+        faiz_oran = market.get("faiz_oran")
+        if faiz_oran is not None:
+            fiz_ret = _calculate_simple_interest_returns(faiz_oran)
+            source_info["faiz"] = "evds_TP.APIFON4"
+        else:
+            errors.append("Faiz: veri alınamadı")
             source_info["faiz"] = "hata"
 
     periods = {
