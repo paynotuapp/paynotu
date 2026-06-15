@@ -90,9 +90,15 @@ class _DetayScreenState extends State<DetayScreen>
   Map<String, dynamic>? _yahooData;
   bool _yahooYukleniyor = true;
 
-  Map<String, dynamic>? _quoteData;
-  bool _quoteYukleniyor = false;
-  Timer? _quoteTimer;
+  // Lite: anlık fiyat, gün içi aralık, teorik limitler (~0.5s)
+  Map<String, dynamic>? _quoteLiteData;
+  bool _quoteLiteYukleniyor = false;
+  Timer? _quoteLiteTimer;
+
+  // Full: getiriler, RSI, beta, 12A dip/zirve (~6-9s, 300s cache)
+  Map<String, dynamic>? _quoteFullData;
+  bool _quoteFullYukleniyor = false;
+  Timer? _quoteFullTimer;
 
   static String get _apiBaseUrl {
     const envUrl = String.fromEnvironment('PAYNOTU_API_URL', defaultValue: '');
@@ -109,16 +115,25 @@ class _DetayScreenState extends State<DetayScreen>
 
     _yahooVeriCek();
 
-    _quoteCek();
-    _quoteTimer = Timer.periodic(
+    // Lite hemen çekilir, full arka planda
+    _quoteLiteCek();
+    _quoteFullCek();
+
+    // Lite 60 saniyede bir fiyat günceller, full 5 dakikada bir (backend 300s cache)
+    _quoteLiteTimer = Timer.periodic(
       const Duration(seconds: 60),
-      (_) => _quoteCek(),
+      (_) => _quoteLiteCek(),
+    );
+    _quoteFullTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _quoteFullCek(),
     );
   }
 
   @override
   void dispose() {
-    _quoteTimer?.cancel();
+    _quoteLiteTimer?.cancel();
+    _quoteFullTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -162,51 +177,58 @@ class _DetayScreenState extends State<DetayScreen>
     }
   }
 
-  Future<void> _quoteCek() async {
-    if (_symbol.isEmpty || _quoteYukleniyor) return;
-
-    setState(() {
-      _quoteYukleniyor = true;
-    });
-
+  Future<void> _quoteLiteCek() async {
+    if (_symbol.isEmpty || _quoteLiteYukleniyor) return;
+    setState(() => _quoteLiteYukleniyor = true);
     try {
-      final uri = Uri.parse('$_apiBaseUrl/quote/$_symbol');
-
-      final response = await http.get(
-        uri,
-        headers: const {
-          'Accept': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 8));
-
-      if (response.statusCode == 200) {
+      final uri = Uri.parse('$_apiBaseUrl/quote-lite/$_symbol');
+      final response = await http
+          .get(uri, headers: const {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200 && mounted) {
         final decoded = jsonDecode(response.body);
-
-        if (decoded is Map<String, dynamic> && mounted) {
-          setState(() {
-            _quoteData = decoded;
-          });
+        if (decoded is Map<String, dynamic>) {
+          setState(() => _quoteLiteData = decoded);
         }
       } else {
-        debugPrint(
-          '[quote] $_symbol HTTP ${response.statusCode}: ${response.body}',
-        );
+        debugPrint('[quote-lite] $_symbol HTTP ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('[quote] $_symbol fiyat alınamadı: $e');
+      debugPrint('[quote-lite] $_symbol hata: $e');
     } finally {
-      if (mounted) {
-        setState(() {
-          _quoteYukleniyor = false;
-        });
+      if (mounted) setState(() => _quoteLiteYukleniyor = false);
+    }
+  }
+
+  Future<void> _quoteFullCek() async {
+    if (_symbol.isEmpty || _quoteFullYukleniyor) return;
+    setState(() => _quoteFullYukleniyor = true);
+    try {
+      final uri = Uri.parse('$_apiBaseUrl/quote/$_symbol');
+      final response = await http
+          .get(uri, headers: const {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200 && mounted) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          setState(() => _quoteFullData = decoded);
+        }
+      } else {
+        debugPrint('[quote-full] $_symbol HTTP ${response.statusCode}');
       }
+    } catch (e) {
+      debugPrint('[quote-full] $_symbol hata: $e');
+    } finally {
+      if (mounted) setState(() => _quoteFullYukleniyor = false);
     }
   }
 
   Map<String, dynamic> _hisseDataWithQuote(Map<String, dynamic> base) {
     return {
       ...base,
-      if (_quoteData != null) ..._quoteData!,
+      // Lite önce gelir (hızlı), full sonra üstüne yazar (ağır ama tam)
+      if (_quoteLiteData != null) ..._quoteLiteData!,
+      if (_quoteFullData != null) ..._quoteFullData!,
     };
   }
 

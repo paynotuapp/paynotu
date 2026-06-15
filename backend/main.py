@@ -887,8 +887,131 @@ QUOTE_CACHE_TTL_SECONDS = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "300"))
 QUOTE_DELAY_MINUTES = int(os.getenv("QUOTE_DELAY_MINUTES", "15"))
 QUOTE_LOOKBACK_DAYS = int(os.getenv("QUOTE_LOOKBACK_DAYS", "450"))
 
+_QUOTE_LITE_CACHE: dict[str, dict] = {}
+QUOTE_LITE_CACHE_TTL = 60  # saniye — anlık fiyat, sık yenilenir
+
 _DIVIDEND_YIELD_CACHE: dict[str, dict] = {}
 _DIVIDEND_YIELD_TTL_SECONDS = 24 * 60 * 60
+
+def _safe_pos_float(v) -> float | None:
+    try:
+        f = float(v)
+        return f if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _quote_lite_payload(ticker: str) -> dict:
+    """
+    History çağrısı yapmadan hızlı fiyat verisi döner.
+    fast_info + info ile ~0.5s hedefi.
+    Döndürdüğü alanlar:
+      fiyat, gunluk_degisim_yuzde,
+      gun_ici_dusuk/yuksek_fiyat,
+      teorik_taban/tavan_fiyat, teorik_limit_baz_fiyat
+    """
+    def _do_fast_info():
+        try:
+            return bp.Ticker(ticker).fast_info.todict()
+        except Exception as e:
+            logger.warning(f"[quote-lite] {ticker} fast_info hatası: {e}")
+            return {}
+
+    def _do_info():
+        try:
+            return bp.Ticker(ticker).info
+        except Exception as e:
+            logger.warning(f"[quote-lite] {ticker} info hatası: {e}")
+            return {}
+
+    _t0 = time.time()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        _fut_fi   = pool.submit(_do_fast_info)
+        _fut_info = pool.submit(_do_info)
+        fi        = _fut_fi.result()
+        info_obj  = _fut_info.result()
+    logger.debug(f"[quote-lite] {ticker} fetch: {time.time() - _t0:.2f}s")
+
+    # ── Anlık fiyat ────────────────────────────────────────────────────────
+    son_fiyat: float | None = None
+    for k in ('last_price', 'regularMarketPrice', 'currentPrice', 'price'):
+        son_fiyat = _safe_pos_float(fi.get(k))
+        if son_fiyat:
+            break
+    if son_fiyat is None:
+        for k in ('currentPrice', 'regularMarketPrice', 'price'):
+            son_fiyat = _safe_pos_float(info_obj.get(k))
+            if son_fiyat:
+                break
+
+    # ── Önceki kapanış (teorik limit + günlük değişim baz) ─────────────────
+    teorik_baz: float | None = None
+    for k in ('previous_close', 'regularMarketPreviousClose', 'prev_close'):
+        teorik_baz = _safe_pos_float(fi.get(k))
+        if teorik_baz:
+            break
+    if teorik_baz is None:
+        for k in ('prev_close', 'previous_close', 'regularMarketPreviousClose'):
+            teorik_baz = _safe_pos_float(info_obj.get(k))
+            if teorik_baz:
+                break
+
+    # ── Günlük değişim ─────────────────────────────────────────────────────
+    gunluk_degisim: float | None = None
+    if son_fiyat and teorik_baz:
+        gunluk_degisim = round((son_fiyat / teorik_baz - 1) * 100, 2)
+    else:
+        for k in ('regular_market_change_percent', 'regularMarketChangePercent'):
+            v = fi.get(k)
+            if v is not None:
+                try:
+                    gunluk_degisim = round(float(v), 2)
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+    # ── Gün içi aralık ─────────────────────────────────────────────────────
+    gun_ici_dusuk  = _safe_pos_float(fi.get('day_low'))
+    gun_ici_yuksek = _safe_pos_float(fi.get('day_high'))
+    if gun_ici_dusuk:
+        gun_ici_dusuk  = round(gun_ici_dusuk, 2)
+    if gun_ici_yuksek:
+        gun_ici_yuksek = round(gun_ici_yuksek, 2)
+
+    # ── Teorik taban/tavan ─────────────────────────────────────────────────
+    teorik_taban = teorik_tavan = None
+    teorik_marji = teorik_adim = teorik_kaynagi = None
+    if teorik_baz:
+        try:
+            _MARJI = 0.10
+            adim = _bist_fiyat_adimi(teorik_baz)
+            teorik_taban   = round(math.ceil(round(teorik_baz * (1 - _MARJI) / adim, 9)) * adim, 2)
+            teorik_tavan   = round(math.floor(round(teorik_baz * (1 + _MARJI) / adim, 9)) * adim, 2)
+            teorik_marji   = 10.0
+            teorik_adim    = adim
+            teorik_kaynagi = "bist_marji_010_adim_yuvarlanmis"
+        except Exception as e:
+            logger.warning(f"[quote-lite] {ticker} teorik limit hatası: {e}")
+
+    return {
+        "symbol":                  ticker,
+        "fiyat":                   round(son_fiyat, 2) if son_fiyat else None,
+        "gunluk_degisim_yuzde":    gunluk_degisim,
+        "gun_ici_dusuk_fiyat":     gun_ici_dusuk,
+        "gun_ici_yuksek_fiyat":    gun_ici_yuksek,
+        "teorik_taban_fiyat":      teorik_taban,
+        "teorik_tavan_fiyat":      teorik_tavan,
+        "fiyat_marji_yuzde":       teorik_marji,
+        "fiyat_adimi":             teorik_adim,
+        "teorik_limit_kaynagi":    teorik_kaynagi,
+        "teorik_limit_baz_fiyat":  round(teorik_baz, 2) if teorik_baz else None,
+        "para_birimi":             "TRY",
+        "borsa":                   "BIST",
+        "lite":                    True,
+        "fiyat_gecikme_dk":        QUOTE_DELAY_MINUTES,
+        "fiyat_guncelleme_tarihi": datetime.now(timezone.utc).isoformat(),
+    }
+
 
 # XU100 benchmark cache — beta hesabı için her /quote'ta yeniden çekilmez
 _BENCHMARK_CLOSE_CACHE: dict = {}
@@ -1412,6 +1535,29 @@ def get_quote(ticker: str):
         "cache": False,
         "cache_age_seconds": 0,
     }
+
+
+@app.get("/quote-lite/{ticker}")
+def get_quote_lite(ticker: str):
+    """
+    Hızlı fiyat endpoint'i — history çağrısı olmadan fast_info + info kullanır.
+    Header fiyat, gün içi aralık, teorik taban/tavan döner (~0.5s hedef).
+    Ağır alanlar (getiriler, RSI, beta, 12A dip/zirve) için /quote kullanın.
+    """
+    ticker = _normalize_quote_ticker(ticker)
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker zorunlu")
+
+    now_ts = time.time()
+    cached = _QUOTE_LITE_CACHE.get(ticker)
+    if cached is not None:
+        age = now_ts - cached["ts"]
+        if age <= QUOTE_LITE_CACHE_TTL:
+            return {**cached["payload"], "cache": True, "cache_age_seconds": round(age, 1)}
+
+    payload = _quote_lite_payload(ticker)
+    _QUOTE_LITE_CACHE[ticker] = {"ts": now_ts, "payload": payload}
+    return {**payload, "cache": False, "cache_age_seconds": 0}
 
 
 # ── GETİRİ KARŞILAŞTIRMASI ────────────────────────────────────────────────────
