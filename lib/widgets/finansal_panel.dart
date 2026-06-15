@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -221,6 +222,7 @@ class FinansalPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _GetiriKarsilastirmasiKart(
+                key: ValueKey((hisseData['symbol'] as String?) ?? ''),
                 symbol: (hisseData['symbol'] as String?) ?? '',
                 apiBaseUrl: _compareApiBaseUrl,
               ),
@@ -359,6 +361,7 @@ class FinansalPanel extends StatelessWidget {
 
           // ── Getiri Karşılaştırması ─────────────────────────────
           _GetiriKarsilastirmasiKart(
+            key: ValueKey((hisseData['symbol'] as String?) ?? ''),
             symbol: (hisseData['symbol'] as String?) ?? '',
             apiBaseUrl: _compareApiBaseUrl,
           ),
@@ -1286,6 +1289,7 @@ class _GetiriKarsilastirmasiKart extends StatefulWidget {
   final String apiBaseUrl;
 
   const _GetiriKarsilastirmasiKart({
+    super.key,
     required this.symbol,
     required this.apiBaseUrl,
   });
@@ -1299,12 +1303,27 @@ class _GetiriKarsilastirmasiKartState
     extends State<_GetiriKarsilastirmasiKart> {
   Map<String, dynamic>? _data;
   bool _loading = true;
+  bool _error = false;
   String _secilenDonem = '1A';
+  int _loadingSaniye = 0;
+  Timer? _loadingTimer;
 
   static const _donemler = ['1G', '1H', '1A', '3A', '6A', 'YBB', '1Y'];
   static const _varliklarSira = [
     'symbol', 'altin', 'usdtry', 'eurtry', 'bist100', 'faiz'
   ];
+
+  void _startLoadingTimer() {
+    _loadingTimer?.cancel();
+    _loadingSaniye = 0;
+    _loadingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _loading) {
+        setState(() => _loadingSaniye++);
+      } else {
+        _loadingTimer?.cancel();
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -1312,29 +1331,57 @@ class _GetiriKarsilastirmasiKartState
     _fetch();
   }
 
+  @override
+  void didUpdateWidget(_GetiriKarsilastirmasiKart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.symbol != widget.symbol) {
+      _secilenDonem = '1A';
+      _fetch();
+    }
+  }
+
+  @override
+  void dispose() {
+    _loadingTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _fetch() async {
-    if (widget.symbol.isEmpty) {
-      if (mounted) setState(() => _loading = false);
+    final sym = widget.symbol;
+    if (sym.isEmpty) {
+      _loadingTimer?.cancel();
+      if (mounted) setState(() { _loading = false; _error = false; });
       return;
     }
+    if (mounted) {
+      setState(() { _loading = true; _error = false; _data = null; });
+      _startLoadingTimer();
+    }
+    debugPrint('COMPARE fetch start: $sym');
     try {
-      final uri =
-          Uri.parse('${widget.apiBaseUrl}/compare/${widget.symbol}');
+      final uri = Uri.parse(
+          '${widget.apiBaseUrl}/compare/${Uri.encodeComponent(sym)}');
       final response = await http
           .get(uri, headers: const {'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 25));
       if (response.statusCode == 200 && mounted) {
         final decoded = jsonDecode(response.body);
         if (decoded is Map<String, dynamic>) {
+          debugPrint('COMPARE fetch success: $sym');
+          _loadingTimer?.cancel();
           setState(() {
             _data = decoded;
             _loading = false;
+            _error = false;
           });
           return;
         }
       }
-    } catch (_) {}
-    if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      debugPrint('COMPARE fetch error: $sym $e');
+    }
+    _loadingTimer?.cancel();
+    if (mounted) setState(() { _loading = false; _error = true; });
   }
 
   void _infoGoster(BuildContext context) {
@@ -1448,6 +1495,8 @@ class _GetiriKarsilastirmasiKartState
     final cs = Theme.of(context).colorScheme;
 
     if (_loading) {
+      final uzunBekleme = _loadingSaniye >= 8;
+      final kisaBekleme = _loadingSaniye >= 2 && !uzunBekleme;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1458,24 +1507,83 @@ class _GetiriKarsilastirmasiKartState
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: cs.onSurface)),
-          const SizedBox(height: 14),
-          Center(
-            child: SizedBox(
-              height: 18,
-              width: 18,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: cs.primary),
-            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              SizedBox(
+                height: 14,
+                width: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.5, color: cs.primary),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  uzunBekleme
+                      ? 'Veri beklenenden uzun sürüyor...'
+                      : kisaBekleme
+                          ? 'Piyasa karşılaştırmaları hazırlanıyor...'
+                          : 'Yükleniyor...',
+                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              ),
+              if (uzunBekleme)
+                GestureDetector(
+                  onTap: _fetch,
+                  child: Icon(Icons.refresh, size: 16, color: cs.onSurfaceVariant),
+                ),
+            ],
           ),
           const SizedBox(height: 14),
         ],
       );
     }
 
-    if (_data == null) return const SizedBox.shrink();
+    if (_error || _data == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(children: [
+            Text('Getiri Karşılaştırması',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface)),
+            const Spacer(),
+            GestureDetector(
+              onTap: _fetch,
+              child: Icon(Icons.refresh, size: 16, color: cs.onSurfaceVariant),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text('Karşılaştırma verisi yüklenemedi',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 10),
+        ],
+      );
+    }
 
     final periods = _data!['periods'] as Map<String, dynamic>?;
-    if (periods == null) return const SizedBox.shrink();
+    if (periods == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          const SizedBox(height: 8),
+          Text('Getiri Karşılaştırması',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface)),
+          const SizedBox(height: 8),
+          Text('Karşılaştırma verisi yok',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 10),
+        ],
+      );
+    }
 
     final donemData = periods[_secilenDonem] as Map<String, dynamic>?;
     final labels = _buildLabels();
