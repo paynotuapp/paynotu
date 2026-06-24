@@ -2037,9 +2037,69 @@ _ALL_HISSE_CACHE_TTL_SECONDS: int = 3600
 _ALL_HISSE_CACHE_LOCK = _threading.Lock()
 
 
+def _firestore_val(v: dict):
+    """Firestore REST format'tan Python'a donustur."""
+    if "stringValue" in v:
+        return v["stringValue"]
+    if "booleanValue" in v:
+        return bool(v["booleanValue"])
+    if "integerValue" in v:
+        return int(v["integerValue"])
+    if "doubleValue" in v:
+        return float(v["doubleValue"])
+    if "nullValue" in v:
+        return None
+    if "mapValue" in v:
+        return {k: _firestore_val(fv) for k, fv in v["mapValue"].get("fields", {}).items()}
+    if "arrayValue" in v:
+        return [_firestore_val(av) for av in v["arrayValue"].get("values", [])]
+    return None  # bytes, reference, timestamp
+
+
+def _fetch_hisse_via_rest() -> list[dict]:
+    """Firestore REST API ile aktif hisseleri cek — gRPC tamamen bypass."""
+    import google.auth.transport.requests as _gtr
+    app = firebase_admin.get_app()
+    google_cred = app.credential.get_credential()
+    if not google_cred.valid:
+        google_cred.refresh(_gtr.Request())
+    token = google_cred.token
+
+    # project_id: service account email'den cikar
+    sa_email = google_cred.service_account_email  # xxx@project.iam.gserviceaccount.com
+    project_id = sa_email.split("@")[1].replace(".iam.gserviceaccount.com", "")
+
+    base = (
+        f"https://firestore.googleapis.com/v1/"
+        f"projects/{project_id}/databases/(default)/documents/hisseler"
+    )
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    result: list[dict] = []
+    page_token: str | None = None
+    while True:
+        params: dict = {"pageSize": 300}
+        if page_token:
+            params["pageToken"] = page_token
+        resp = _requests.get(base, headers=headers, params=params, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        for doc in data.get("documents", []):
+            doc_id = doc["name"].split("/")[-1]
+            d = {k: _firestore_val(fv) for k, fv in doc.get("fields", {}).items()}
+            if d.get("kap_aktif") is not True:
+                continue
+            d["_symbol"] = doc_id
+            result.append(d)
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+    return result
+
+
 def _fetch_all_hisse_snapshot(db) -> tuple[list[dict], bool]:
-    """Tüm kap_aktif=True hisselerin snapshot'ı. Thread-safe, TTL 3600s.
-    Returns (snapshot, stale) — stale=True: Firestore başarısız, eski cache kullanıldı."""
+    """Tum kap_aktif=True hisselerin snapshot'i. Thread-safe, TTL 3600s.
+    REST API kullanir (gRPC bypass). stale=True: hata, eski cache."""
     global _ALL_HISSE_CACHE, _ALL_HISSE_CACHE_AT
 
     now = time.time()
@@ -2051,22 +2111,14 @@ def _fetch_all_hisse_snapshot(db) -> tuple[list[dict], bool]:
         if _ALL_HISSE_CACHE is not None and (now - _ALL_HISSE_CACHE_AT) < _ALL_HISSE_CACHE_TTL_SECONDS:
             return _ALL_HISSE_CACHE, False
         try:
-            # .where() filtresi Railway gRPC sürümüyle uyumsuz — Python'da filtrele
-            docs = list(db.collection("hisseler").stream())
-            snapshot: list[dict] = []
-            for doc in docs:
-                d = doc.to_dict()
-                if d.get("kap_aktif") is not True:
-                    continue
-                d["_symbol"] = doc.id
-                snapshot.append(d)
+            snapshot = _fetch_hisse_via_rest()
             _ALL_HISSE_CACHE = snapshot
             _ALL_HISSE_CACHE_AT = time.time()
-            logger.info(f"[group_compare] snapshot yenilendi — {len(snapshot)} aktif hisse")
+            logger.info(f"[group_compare] REST snapshot yenilendi: {len(snapshot)} aktif hisse")
             return snapshot, False
         except Exception as exc:
             logger.warning(
-                f"[group_compare] snapshot Firestore hatası: {type(exc).__name__}: {exc}\n"
+                f"[group_compare] REST snapshot hatasi: {type(exc).__name__}: {exc}\n"
                 + _traceback.format_exc()
             )
             if _ALL_HISSE_CACHE is not None:
