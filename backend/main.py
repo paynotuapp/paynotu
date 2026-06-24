@@ -2361,12 +2361,18 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
 @app.get("/group-compare/{symbol}")
 def get_group_compare(symbol: str):
     """Hissenin benzer şirket grubundaki sayısal konumu. Yalnızca mevcut Firestore verisi."""
+    logger.info(f"[gc_diag] A: endpoint cagrildi symbol_raw={symbol!r}")
     symbol = _normalize_quote_ticker(symbol)
+    logger.info(f"[gc_diag] B: normalize tamam symbol={symbol!r}")
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol zorunlu")
     try:
+        logger.info("[gc_diag] C: firebase_db cagrilmadan once")
         db = _firebase_db()
-        return _get_group_compare_payload(symbol, db)
+        logger.info("[gc_diag] D: firebase_db tamam, payload cagrilacak")
+        result = _get_group_compare_payload(symbol, db)
+        logger.info(f"[gc_diag] E: payload tamam")
+        return result
     except HTTPException:
         raise
     except Exception as exc:
