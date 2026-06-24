@@ -267,10 +267,13 @@ class _HisseBilgi {
         _num(d['target_price']) ??
         _num(d['analyst_target_price']);
 
-    final degisim = _num(d['haftalik_degisim_yuzde']) ??
+    final gunlukDegisim = _num(d['gunluk_degisim_yuzde']);
+    final haftalikDegisim = _num(d['haftalik_degisim_yuzde']) ??
         _num(d['degisim_7g_yuzde']) ??
         _num(d['weekly_change_percent']) ??
         _num(d['weekly_change']);
+    final degisim = gunlukDegisim ?? haftalikDegisim;
+    final degisimDonem = gunlukDegisim != null ? '1g' : '7g';
 
     final borsa = _str(d['borsa']) ??
         _str(d['exchange']) ??
@@ -288,7 +291,7 @@ class _HisseBilgi {
       hedefMetni: _fiyatFormatla(hedef, paraBirimi),
       degisimMetni: degisim == null
           ? null
-          : '${degisim >= 0 ? '+' : ''}${degisim.toStringAsFixed(1)}% 7g',
+          : '${degisim >= 0 ? '+' : ''}${degisim.toStringAsFixed(1)}% $degisimDonem',
       degisimPozitif: degisim == null ? null : degisim >= 0,
     );
   }

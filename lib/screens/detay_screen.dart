@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -179,22 +180,29 @@ class _DetayScreenState extends State<DetayScreen>
 
   Future<void> _quoteLiteCek() async {
     if (_symbol.isEmpty || _quoteLiteYukleniyor) return;
+    final requestedSymbol = _symbol;
+    final t0 = DateTime.now();
+    if (kDebugMode) debugPrint('DETAIL lite start: $requestedSymbol');
     setState(() => _quoteLiteYukleniyor = true);
     try {
-      final uri = Uri.parse('$_apiBaseUrl/quote-lite/$_symbol');
+      final uri = Uri.parse('$_apiBaseUrl/quote-lite/$requestedSymbol');
       final response = await http
           .get(uri, headers: const {'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200 && mounted) {
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      final elapsed = DateTime.now().difference(t0).inMilliseconds;
+      if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
+        if (decoded is Map<String, dynamic> && requestedSymbol == _symbol) {
+          if (kDebugMode) debugPrint('DETAIL lite success: $requestedSymbol elapsedMs=$elapsed');
+          if (kDebugMode) debugPrint('DETAIL merge updated: lite=true full=${_quoteFullData != null}');
           setState(() => _quoteLiteData = decoded);
         }
       } else {
-        debugPrint('[quote-lite] $_symbol HTTP ${response.statusCode}');
+        debugPrint('[quote-lite] $requestedSymbol HTTP ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('[quote-lite] $_symbol hata: $e');
+      debugPrint('[quote-lite] $requestedSymbol hata: $e');
     } finally {
       if (mounted) setState(() => _quoteLiteYukleniyor = false);
     }
@@ -202,33 +210,50 @@ class _DetayScreenState extends State<DetayScreen>
 
   Future<void> _quoteFullCek() async {
     if (_symbol.isEmpty || _quoteFullYukleniyor) return;
+    final requestedSymbol = _symbol;
+    final t0 = DateTime.now();
+    if (kDebugMode) debugPrint('DETAIL full start: $requestedSymbol');
     setState(() => _quoteFullYukleniyor = true);
     try {
-      final uri = Uri.parse('$_apiBaseUrl/quote/$_symbol');
+      final uri = Uri.parse('$_apiBaseUrl/quote/$requestedSymbol');
       final response = await http
           .get(uri, headers: const {'Accept': 'application/json'})
           .timeout(const Duration(seconds: 30));
-      if (response.statusCode == 200 && mounted) {
+      if (!mounted) return;
+      final elapsed = DateTime.now().difference(t0).inMilliseconds;
+      if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
+        if (decoded is Map<String, dynamic> && requestedSymbol == _symbol) {
+          if (kDebugMode) debugPrint('DETAIL full success: $requestedSymbol elapsedMs=$elapsed');
+          if (kDebugMode) debugPrint('DETAIL merge updated: lite=${_quoteLiteData != null} full=true');
           setState(() => _quoteFullData = decoded);
         }
       } else {
-        debugPrint('[quote-full] $_symbol HTTP ${response.statusCode}');
+        debugPrint('[quote-full] $requestedSymbol HTTP ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('[quote-full] $_symbol hata: $e');
+      debugPrint('[quote-full] $requestedSymbol hata: $e');
     } finally {
       if (mounted) setState(() => _quoteFullYukleniyor = false);
     }
   }
 
+  Map<String, dynamic> _nonNullEntries(Map<String, dynamic>? source) {
+    if (source == null) return const <String, dynamic>{};
+    return <String, dynamic>{
+      for (final entry in source.entries)
+        if (entry.value != null) entry.key: entry.value,
+    };
+  }
+
   Map<String, dynamic> _hisseDataWithQuote(Map<String, dynamic> base) {
-    return {
+    // Merge sırası: base → full non-null (RSI, beta, 12A getiriler) → lite non-null (anlık fiyat).
+    // Lite son sırada: İş Yatırım hızlı verisi full quote null alanlarına ezilmez.
+    // Hiçbir null alan dolu alanı silemez.
+    return <String, dynamic>{
       ...base,
-      // Lite önce gelir (hızlı), full sonra üstüne yazar (ağır ama tam)
-      if (_quoteLiteData != null) ..._quoteLiteData!,
-      if (_quoteFullData != null) ..._quoteFullData!,
+      ..._nonNullEntries(_quoteFullData),
+      ..._nonNullEntries(_quoteLiteData),
     };
   }
 
