@@ -2050,10 +2050,13 @@ def _fetch_all_hisse_snapshot(db) -> tuple[list[dict], bool]:
         if _ALL_HISSE_CACHE is not None and (now - _ALL_HISSE_CACHE_AT) < _ALL_HISSE_CACHE_TTL_SECONDS:
             return _ALL_HISSE_CACHE, False
         try:
-            docs = list(db.collection("hisseler").where("kap_aktif", "==", True).stream())
+            # .where() filtresi Railway gRPC sürümüyle uyumsuz — Python'da filtrele
+            docs = list(db.collection("hisseler").stream())
             snapshot: list[dict] = []
             for doc in docs:
                 d = doc.to_dict()
+                if d.get("kap_aktif") is not True:
+                    continue
                 d["_symbol"] = doc.id
                 snapshot.append(d)
             _ALL_HISSE_CACHE = snapshot
