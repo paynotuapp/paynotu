@@ -12,6 +12,8 @@ from datetime import datetime, timezone, date, timedelta
 
 import re
 import math
+import statistics as _statistics
+import threading as _threading
 import numpy as np
 import pandas as pd
 import requests as _requests
@@ -2012,6 +2014,351 @@ def _compare_payload(symbol: str) -> dict:
         ],
         "errors": errors,
     }
+
+
+# ── GRUP KARŞILAŞTIRMASI ──────────────────────────────────────────────────────
+
+SECTOR_NAME_ALIASES: dict[str, str] = {
+    "TEKSTİL GİYİM EŞYASI VE DERİ": "TEKSTİL, GİYİM EŞYASI VE DERİ",
+}
+
+
+def _normalize_sector_name(name: str | None) -> str:
+    if not name:
+        return ""
+    normalized = " ".join(name.strip().split())
+    return SECTOR_NAME_ALIASES.get(normalized, normalized)
+
+
+_ALL_HISSE_CACHE: list[dict] | None = None
+_ALL_HISSE_CACHE_AT: float = 0.0
+_ALL_HISSE_CACHE_TTL_SECONDS: int = 3600
+_ALL_HISSE_CACHE_LOCK = _threading.Lock()
+
+
+def _fetch_all_hisse_snapshot(db) -> tuple[list[dict], bool]:
+    """Tüm kap_aktif=True hisselerin snapshot'ı. Thread-safe, TTL 3600s.
+    Returns (snapshot, stale) — stale=True: Firestore başarısız, eski cache kullanıldı."""
+    global _ALL_HISSE_CACHE, _ALL_HISSE_CACHE_AT
+
+    now = time.time()
+    if _ALL_HISSE_CACHE is not None and (now - _ALL_HISSE_CACHE_AT) < _ALL_HISSE_CACHE_TTL_SECONDS:
+        return _ALL_HISSE_CACHE, False
+
+    with _ALL_HISSE_CACHE_LOCK:
+        now = time.time()
+        if _ALL_HISSE_CACHE is not None and (now - _ALL_HISSE_CACHE_AT) < _ALL_HISSE_CACHE_TTL_SECONDS:
+            return _ALL_HISSE_CACHE, False
+        try:
+            docs = list(db.collection("hisseler").where("kap_aktif", "==", True).stream())
+            snapshot: list[dict] = []
+            for doc in docs:
+                d = doc.to_dict()
+                d["_symbol"] = doc.id
+                snapshot.append(d)
+            _ALL_HISSE_CACHE = snapshot
+            _ALL_HISSE_CACHE_AT = time.time()
+            logger.info(f"[group_compare] snapshot yenilendi — {len(snapshot)} aktif hisse")
+            return snapshot, False
+        except Exception as exc:
+            logger.warning(f"[group_compare] snapshot Firestore hatası: {exc}")
+            if _ALL_HISSE_CACHE is not None:
+                return _ALL_HISSE_CACHE, True
+            raise
+
+
+def _sym(d: dict) -> str:
+    return d.get("_symbol") or d.get("symbol") or ""
+
+
+def _build_group(snapshot: list[dict], target: dict) -> dict | None:
+    """Grup seçim hiyerarşisi:
+    A: kap_alt_sektor ≥5 → normal
+    B: kap_alt_sektor 3-4 → limited (ana sektöre genişleme YOK)
+    C: kap_alt_sektor <3 → kap_ana_sektor ∩ paynotu_sector_group
+    D: paynotu_sector_group
+    E: None — BIST geneli fallback yasak
+    """
+    target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
+    target_ana = _normalize_sector_name(target.get("kap_ana_sektor"))
+    target_sg  = target.get("paynotu_sector_group") or ""
+
+    def _syms_where(fn) -> list[str]:
+        return [_sym(d) for d in snapshot if fn(d) and _sym(d)]
+
+    # A / B — kap_alt_sektor
+    if target_alt:
+        alt_syms = _syms_where(
+            lambda d: _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
+        )
+        n = len(alt_syms)
+        if n >= 3:
+            return {
+                "level": "kap_alt_sektor",
+                "name": target_alt,
+                "fallback_used": False,
+                "limited_group": n < 5,
+                "members": alt_syms,
+                "model_group": target_sg,
+            }
+
+    # C — kap_ana_sektor ∩ paynotu_sector_group
+    if target_ana and target_sg:
+        inter_syms = _syms_where(
+            lambda d: (
+                _normalize_sector_name(d.get("kap_ana_sektor")) == target_ana
+                and d.get("paynotu_sector_group") == target_sg
+            )
+        )
+        n = len(inter_syms)
+        if n >= 3:
+            return {
+                "level": "kap_ana_sektor_and_model_group",
+                "name": target_ana,
+                "fallback_used": True,
+                "limited_group": n < 5,
+                "members": inter_syms,
+                "model_group": target_sg,
+            }
+
+    # D — paynotu_sector_group
+    if target_sg:
+        sg_syms = _syms_where(lambda d: d.get("paynotu_sector_group") == target_sg)
+        n = len(sg_syms)
+        if n >= 3:
+            return {
+                "level": "paynotu_sector_group",
+                "name": target_sg,
+                "fallback_used": True,
+                "limited_group": n < 5,
+                "members": sg_syms,
+                "model_group": target_sg,
+            }
+
+    return None
+
+
+def _safe_float(v) -> float | None:
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def _temel_val(d: dict, key: str) -> float | None:
+    temel = d.get("temel")
+    if not isinstance(temel, dict):
+        return None
+    return _safe_float(temel.get(key))
+
+
+def _compute_metric_stats(
+    values: list[float | None],
+    selected: float | None,
+    direction: str,
+) -> dict:
+    valid = [v for v in values if v is not None]
+    n = len(valid)
+    result: dict = {
+        "valid_count": n,
+        "group_median": None,
+        "group_average": None,
+        "rank": None,
+        "limited_data": n < 5,
+    }
+    if n >= 3:
+        result["group_median"] = round(_statistics.median(valid), 4)
+        result["group_average"] = round(sum(valid) / n, 4)
+    if selected is not None and n >= 3 and direction in ("ascending", "descending"):
+        if direction == "ascending":
+            sorted_unique = sorted(set(valid))
+        else:
+            sorted_unique = sorted(set(valid), reverse=True)
+        rank_map = {v: i + 1 for i, v in enumerate(sorted_unique)}
+        result["rank"] = rank_map.get(selected)
+    return result
+
+
+def _build_metric(
+    label: str,
+    vals: list[float | None],
+    selected: float | None,
+    member_count: int,
+    unit: str,
+    direction: str,
+    extra: dict | None = None,
+) -> dict | None:
+    stats = _compute_metric_stats(vals, selected, direction)
+    if stats["valid_count"] < 3:
+        return None
+    return {
+        "label": label,
+        "selected_value": selected,
+        "group_member_count": member_count,
+        "unit": unit,
+        "direction": direction,
+        "interpretation": "display_only",
+        **(extra or {}),
+        **stats,
+    }
+
+
+def _get_group_compare_payload(symbol: str, db) -> dict:
+    t0 = time.time()
+    was_cold = _ALL_HISSE_CACHE is None or (t0 - _ALL_HISSE_CACHE_AT) >= _ALL_HISSE_CACHE_TTL_SECONDS
+
+    try:
+        snapshot, stale = _fetch_all_hisse_snapshot(db)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Grup verisi şu anda kullanılamıyor")
+
+    target = next((d for d in snapshot if _sym(d) == symbol), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"{symbol} aktif hisseler arasında bulunamadı")
+
+    group_info = _build_group(snapshot, target)
+    cache_status = "stale" if stale else ("miss" if was_cold else "hit")
+    elapsed = round((time.time() - t0) * 1000)
+
+    if group_info is None:
+        logger.info(
+            f"[group_compare] symbol={symbol} cache={cache_status} "
+            f"group=none elapsed_ms={elapsed}"
+        )
+        return {
+            "symbol": symbol,
+            "group": None,
+            "metrics": {},
+            "members": [],
+            "notes": ["Bu sembol için anlamlı bir peer grubu oluşturulamadı."],
+            "reason": "meaningful_peer_group_not_found",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "cache": not was_cold,
+            "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
+            "stale_cache": stale,
+        }
+
+    member_syms = set(group_info["members"])
+    model_group = group_info["model_group"]
+    member_count = len(member_syms)
+    member_docs = [d for d in snapshot if _sym(d) in member_syms]
+
+    # ── PayNotu ──
+    paynotu_vals = [
+        _safe_float(d.get("paynotu_skoru"))
+        for d in member_docs
+        if d.get("has_paynotu") is True
+    ]
+    paynotu_sel = (
+        _safe_float(target.get("paynotu_skoru"))
+        if target.get("has_paynotu") is True else None
+    )
+    paynotu_metric = _build_metric(
+        "PayNotu", paynotu_vals, paynotu_sel, member_count,
+        "score", "ascending",
+    )
+
+    # ── Finansal Skor (yalnızca aynı model grubu) ──
+    fs_docs = [d for d in member_docs if d.get("paynotu_sector_group") == model_group]
+    fs_vals = [_safe_float(d.get("finansal_skor")) for d in fs_docs]
+    fs_sel = (
+        _safe_float(target.get("finansal_skor"))
+        if target.get("paynotu_sector_group") == model_group else None
+    )
+    finansal_metric = _build_metric(
+        "Finansal Skor", fs_vals, fs_sel, member_count,
+        "score", "descending",
+        extra={"model_note": model_group},
+    )
+
+    # ── Koşullu metrikler ──
+    cond_metrics: dict = {}
+    if model_group == "bank":
+        m = _build_metric("ROE", [_temel_val(d, "roe") for d in member_docs],
+                          _temel_val(target, "roe"), member_count, "percent", "none")
+        if m:
+            cond_metrics["roe"] = m
+        m = _build_metric("PD/DD", [_temel_val(d, "pd_dd") for d in member_docs],
+                          _temel_val(target, "pd_dd"), member_count, "ratio", "none")
+        if m:
+            cond_metrics["pd_dd"] = m
+    else:
+        m = _build_metric("F/K", [_temel_val(d, "fk") for d in member_docs],
+                          _temel_val(target, "fk"), member_count, "ratio", "none")
+        if m:
+            cond_metrics["fk"] = m
+        m = _build_metric("PD/DD", [_temel_val(d, "pd_dd") for d in member_docs],
+                          _temel_val(target, "pd_dd"), member_count, "ratio", "none")
+        if m:
+            cond_metrics["pd_dd"] = m
+        if model_group == "insurance" and len(cond_metrics) < 2:
+            m = _build_metric("ROE", [_temel_val(d, "roe") for d in member_docs],
+                              _temel_val(target, "roe"), member_count, "percent", "none")
+            if m:
+                cond_metrics["roe"] = m
+
+    metrics: dict = {}
+    if paynotu_metric:
+        metrics["paynotu_skoru"] = paynotu_metric
+    if finansal_metric:
+        metrics["finansal_skor"] = finansal_metric
+    metrics.update(cond_metrics)
+
+    def _name(d: dict) -> str:
+        return d.get("company_name") or d.get("name") or _sym(d)
+
+    members_list = sorted(
+        [{"symbol": _sym(d), "name": _name(d), "selected": _sym(d) == symbol}
+         for d in member_docs],
+        key=lambda x: x["symbol"],
+    )
+
+    elapsed = round((time.time() - t0) * 1000)
+    logger.info(
+        f"[group_compare] symbol={symbol} cache={cache_status} "
+        f"group={group_info['level']} members={member_count} elapsed_ms={elapsed}"
+    )
+
+    return {
+        "symbol": symbol,
+        "group": {
+            "level": group_info["level"],
+            "name": group_info["name"],
+            "fallback_used": group_info["fallback_used"],
+            "limited_group": group_info["limited_group"],
+            "member_count": member_count,
+            "model_group": model_group,
+        },
+        "metrics": metrics,
+        "members": members_list,
+        "notes": [
+            "Karşılaştırma mevcut benzer şirket grubu verileriyle hazırlanmıştır.",
+            "Eksik değerler yalnızca ilgili metriğin hesabından çıkarılmıştır.",
+        ],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "cache": not was_cold,
+        "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
+        "stale_cache": stale,
+    }
+
+
+@app.get("/group-compare/{symbol}")
+def get_group_compare(symbol: str):
+    """Hissenin benzer şirket grubundaki sayısal konumu. Yalnızca mevcut Firestore verisi."""
+    symbol = _normalize_quote_ticker(symbol)
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol zorunlu")
+    try:
+        db = _firebase_db()
+        return _get_group_compare_payload(symbol, db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"[group_compare] {symbol} beklenmeyen hata: {exc}")
+        raise HTTPException(status_code=503, detail="Servis geçici olarak kullanılamıyor")
 
 
 @app.get("/compare/{symbol}")
