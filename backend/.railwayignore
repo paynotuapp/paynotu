@@ -1,0 +1,43 @@
+# Geçici ve test dosyaları
+_audit_*.py
+_batch_*.py
+_coverage_*.py
+_delist_*.py
+_diag_*.py
+_explore_*.py
+_mapping_*.py
+_parse_*.py
+_pdf_*.py
+_probe_*.py
+_smoke_*.py
+_sport_*.py
+_test_*.py
+_verify_*.py
+_ygyo_*.py
+analyze_distribution.py
+dataset_builder.py
+diag_pump.py
+smoke_test.py
+test_enhanced_disc.py
+trace_subscores.py
+subscore_corpus.csv
+topsis_validation*.csv
+
+# Raporlar ve veri dosyaları
+reports/
+spk_belgeleri/
+scripts/spk_calibration/
+
+# Excel ve PDF
+*.xlsx
+*.pdf
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Test çıktıları
+*.log
