@@ -12,6 +12,7 @@ from datetime import datetime, timezone, date, timedelta
 
 import re
 import math
+import traceback as _traceback
 import statistics as _statistics
 import threading as _threading
 import numpy as np
@@ -2064,7 +2065,10 @@ def _fetch_all_hisse_snapshot(db) -> tuple[list[dict], bool]:
             logger.info(f"[group_compare] snapshot yenilendi — {len(snapshot)} aktif hisse")
             return snapshot, False
         except Exception as exc:
-            logger.warning(f"[group_compare] snapshot Firestore hatası: {exc}")
+            logger.warning(
+                f"[group_compare] snapshot Firestore hatası: {type(exc).__name__}: {exc}\n"
+                + _traceback.format_exc()
+            )
             if _ALL_HISSE_CACHE is not None:
                 return _ALL_HISSE_CACHE, True
             raise
@@ -2210,12 +2214,18 @@ def _build_metric(
 
 
 def _get_group_compare_payload(symbol: str, db) -> dict:
+    logger.info(f"[group_compare] payload başladı: {symbol}")
     t0 = time.time()
     was_cold = _ALL_HISSE_CACHE is None or (t0 - _ALL_HISSE_CACHE_AT) >= _ALL_HISSE_CACHE_TTL_SECONDS
 
     try:
         snapshot, stale = _fetch_all_hisse_snapshot(db)
-    except Exception:
+        logger.info(f"[group_compare] snapshot alındı: {len(snapshot)} hisse")
+    except Exception as _snap_exc:
+        logger.error(
+            f"[group_compare] snapshot hatası (iç): {type(_snap_exc).__name__}: {_snap_exc}\n"
+            + _traceback.format_exc()
+        )
         raise HTTPException(status_code=503, detail="Grup verisi şu anda kullanılamıyor")
 
     target = next((d for d in snapshot if _sym(d) == symbol), None)
@@ -2360,7 +2370,10 @@ def get_group_compare(symbol: str):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"[group_compare] {symbol} beklenmeyen hata: {exc}")
+        logger.error(
+            f"[group_compare] {symbol} beklenmeyen hata: {type(exc).__name__}: {exc}\n"
+            + _traceback.format_exc()
+        )
         raise HTTPException(status_code=503, detail="Servis geçici olarak kullanılamıyor")
 
 
