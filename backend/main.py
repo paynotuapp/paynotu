@@ -54,18 +54,28 @@ DUYGUSAL_AKIL_URL = os.getenv('DUYGUSAL_AKIL_URL', 'http://localhost:8001')
 
 def _firebase_db():
     if not firebase_admin._apps:
-        cred_b64 = os.getenv("FIREBASE_CREDENTIALS_BASE64") or os.getenv("FIREBASE_CREDENTIALS_JSON")
+        cred_b64  = (os.getenv("FIREBASE_CREDENTIALS_BASE64") or "").strip()
+        cred_json = (os.getenv("FIREBASE_CREDENTIALS_JSON")  or "").strip()
+
         if cred_b64:
+            if not cred_b64.isascii():
+                raise ValueError(
+                    "FIREBASE_CREDENTIALS_BASE64 içinde ASCII dışı karakter var — "
+                    "Railway'de değeri silip yeniden base64 olarak yapıştırın"
+                )
             cred_b64 += "=" * (-len(cred_b64) % 4)
             cred_dict = json.loads(base64.b64decode(cred_b64).decode())
-            cred = credentials.Certificate(cred_dict)
+        elif cred_json:
+            cred_dict = json.loads(cred_json)
         else:
             cred_path = os.path.join(
                 os.path.dirname(__file__),
                 "pay-defteri-firebase-adminsdk-fbsvc-58f68bd69c.json",
             )
-            cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
+            firebase_admin.initialize_app(credentials.Certificate(cred_path))
+            return fb_firestore.client()
+
+        firebase_admin.initialize_app(credentials.Certificate(cred_dict))
     return fb_firestore.client()
 
 
@@ -819,8 +829,8 @@ async def lifespan(app: FastAPI):
         if doc.exists:
             financial_engine.reload_thresholds(doc.to_dict())
             logger.info("[startup] Firestore'dan motor eşikleri yüklendi")
-    except Exception as e:
-        logger.warning(f"[startup] Firestore eşik yüklenemedi: {e}")
+    except Exception:
+        logger.exception("[startup] Firestore eşik yüklenemedi")
 
     scheduler = BackgroundScheduler(timezone="UTC")
     scheduler.add_job(daily_job,          CronTrigger(hour=3, minute=0), id="daily_score")
