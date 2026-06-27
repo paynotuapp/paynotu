@@ -2046,6 +2046,50 @@ _ALL_HISSE_CACHE_AT: float = 0.0
 _ALL_HISSE_CACHE_TTL_SECONDS: int = 3600
 _ALL_HISSE_CACHE_LOCK = _threading.Lock()
 
+# ── Piyasa değeri cache (yfinance fast_info, 4h TTL) ──────────────────────────
+_MC_CACHE: dict[str, float | None] = {}
+_MC_CACHE_AT: float = 0.0
+_MC_CACHE_TTL = 4 * 3600
+_MC_CACHE_LOCK = _threading.Lock()
+
+
+def _fetch_one_market_cap(symbol: str) -> tuple[str, float | None]:
+    """Tek sembol için yfinance fast_info.market_cap döner."""
+    try:
+        import yfinance as _yf
+        fi = _yf.Ticker(f"{symbol}.IS").fast_info
+        mc = getattr(fi, "market_cap", None)
+        return symbol, (float(mc) if mc else None)
+    except Exception:
+        return symbol, None
+
+
+def _ensure_market_caps(symbols: list[str]) -> None:
+    """Eksik semboller için market cap'i paralel fetch eder, cache'e yazar."""
+    global _MC_CACHE, _MC_CACHE_AT
+    now = time.time()
+
+    with _MC_CACHE_LOCK:
+        if (now - _MC_CACHE_AT) > _MC_CACHE_TTL:
+            _MC_CACHE = {}
+            _MC_CACHE_AT = now
+        missing = [s for s in symbols if s not in _MC_CACHE]
+
+    if not missing:
+        return
+
+    workers = min(10, len(missing))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for sym, mc in ex.map(_fetch_one_market_cap, missing):
+            with _MC_CACHE_LOCK:
+                _MC_CACHE[sym] = mc
+    logger.info(f"[market_cap] {len(missing)} sembol yfinance'tan alındı")
+
+
+def _get_market_cap(symbol: str) -> float | None:
+    with _MC_CACHE_LOCK:
+        return _MC_CACHE.get(symbol)
+
 
 def _firestore_val(v: dict):
     """Firestore REST format'tan Python'a donustur."""
@@ -2335,16 +2379,20 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
         and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
     ]
 
-    # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona.
-    # piyasa_degeri şu an Firestore'a yazılmıyor; finansal_skor proxy olarak kullanılıyor.
-    # Gelecekte piyasa_degeri yazılırsa ölçek farkı (milyar TL > 10) nedeniyle otomatik kazanır.
+    # Piyasa değerine göre büyükten küçüğe sırala.
+    # piyasa_degeri Firestore'da yok → yfinance fast_info (4h cache) kullanılır.
+    all_syms = [symbol] + [_sym(d) for d in all_peers]
+    _ensure_market_caps(all_syms)
+
     def _mc(d: dict) -> float:
+        # 1. Firestore'da varsa (ileride daily_job yazabilir)
         v = _safe_float(d.get("piyasa_degeri"))
         if v is not None and v > 0:
             return v
-        fs = _safe_float(d.get("finansal_skor"))
-        if fs is not None and fs > 0:
-            return fs
+        # 2. yfinance cache
+        v = _get_market_cap(_sym(d))
+        if v is not None and v > 0:
+            return v
         return -1.0
 
     peers_sorted = sorted(all_peers, key=_mc, reverse=True)
@@ -2369,12 +2417,18 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
         m["pd_dd"] = _temel_val(d, "pd_dd")
         return m
 
+    def _mc_val(d: dict) -> float | None:
+        v = _safe_float(d.get("piyasa_degeri"))
+        if v is not None:
+            return v
+        return _get_market_cap(_sym(d))
+
     companies: list[dict] = [
         {
             "symbol":     symbol,
             "name":       _name(target),
             "selected":   True,
-            "market_cap": _safe_float(target.get("piyasa_degeri")),
+            "market_cap": _mc_val(target),
             "metrics":    _company_metrics(target),
         }
     ]
@@ -2383,7 +2437,7 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
             "symbol":     _sym(d),
             "name":       _name(d),
             "selected":   False,
-            "market_cap": _safe_float(d.get("piyasa_degeri")),  # null — piyasa_degeri henüz yazılmıyor
+            "market_cap": _mc_val(d),
             "metrics":    _company_metrics(d),
         })
 
