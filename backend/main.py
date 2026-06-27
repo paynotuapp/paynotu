@@ -2099,6 +2099,11 @@ def _fetch_hisse_via_rest() -> list[dict]:
             d = {k: _firestore_val(fv) for k, fv in doc.get("fields", {}).items()}
             if d.get("kap_aktif") is not True:
                 continue
+            # GEÇİCİ DEBUG — THYAO'yu yakala
+            if doc_id == "THYAO":
+                logger.info(f"[gc_debug] THYAO raw fields keys: {list(doc.get('fields', {}).keys())}")
+                logger.info(f"[gc_debug] THYAO temel raw: {doc.get('fields', {}).get('temel')}")
+                logger.info(f"[gc_debug] THYAO parsed temel: {d.get('temel')}")
             d["_symbol"] = doc_id
             result.append(d)
         page_token = data.get("nextPageToken")
@@ -2293,6 +2298,13 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     target = next((d for d in snapshot if _sym(d) == symbol), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"{symbol} aktif hisseler arasında bulunamadı")
+
+    # GEÇİCİ DEBUG — cached target'ta temel kontrolü
+    if symbol == "THYAO":
+        logger.info(f"[gc_debug] THYAO temel in snapshot: {target.get('temel')}")
+        logger.info(f"[gc_debug] THYAO _temel_val fk: {_temel_val(target, 'fk')}")
+        logger.info(f"[gc_debug] THYAO _temel_val roe: {_temel_val(target, 'roe')}")
+        logger.info(f"[gc_debug] THYAO _temel_val pd_dd: {_temel_val(target, 'pd_dd')}")
 
     target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
     model_group = target.get("paynotu_sector_group") or ""
