@@ -2099,11 +2099,6 @@ def _fetch_hisse_via_rest() -> list[dict]:
             d = {k: _firestore_val(fv) for k, fv in doc.get("fields", {}).items()}
             if d.get("kap_aktif") is not True:
                 continue
-            # GEÇİCİ DEBUG — THYAO'yu yakala
-            if doc_id == "THYAO":
-                logger.info(f"[gc_debug] THYAO raw fields keys: {list(doc.get('fields', {}).keys())}")
-                logger.info(f"[gc_debug] THYAO temel raw: {doc.get('fields', {}).get('temel')}")
-                logger.info(f"[gc_debug] THYAO parsed temel: {d.get('temel')}")
             d["_symbol"] = doc_id
             result.append(d)
         page_token = data.get("nextPageToken")
@@ -2223,10 +2218,17 @@ def _safe_float(v) -> float | None:
 
 
 def _temel_val(d: dict, key: str) -> float | None:
-    temel = d.get("temel")
-    if not isinstance(temel, dict):
-        return None
-    return _safe_float(temel.get(key))
+    # 1. flat top-level alan: temel_roe, temel_pd_dd, temel_fk...
+    v = _safe_float(d.get(f"temel_{key}"))
+    if v is not None:
+        return v
+    # 2. motor_detay.temel nested map (F/K buradan geliyor)
+    motor = d.get("motor_detay")
+    if isinstance(motor, dict):
+        temel = motor.get("temel")
+        if isinstance(temel, dict):
+            return _safe_float(temel.get(key))
+    return None
 
 
 def _compute_metric_stats(
@@ -2299,13 +2301,6 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     if target is None:
         raise HTTPException(status_code=404, detail=f"{symbol} aktif hisseler arasında bulunamadı")
 
-    # GEÇİCİ DEBUG — cached target'ta temel kontrolü
-    if symbol == "THYAO":
-        logger.info(f"[gc_debug] THYAO temel in snapshot: {target.get('temel')}")
-        logger.info(f"[gc_debug] THYAO _temel_val fk: {_temel_val(target, 'fk')}")
-        logger.info(f"[gc_debug] THYAO _temel_val roe: {_temel_val(target, 'roe')}")
-        logger.info(f"[gc_debug] THYAO _temel_val pd_dd: {_temel_val(target, 'pd_dd')}")
-
     target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
     model_group = target.get("paynotu_sector_group") or ""
     cache_status = "stale" if stale else ("miss" if was_cold else "hit")
@@ -2340,10 +2335,17 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
         and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
     ]
 
-    # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona
+    # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona.
+    # piyasa_degeri şu an Firestore'a yazılmıyor; finansal_skor proxy olarak kullanılıyor.
+    # Gelecekte piyasa_degeri yazılırsa ölçek farkı (milyar TL > 10) nedeniyle otomatik kazanır.
     def _mc(d: dict) -> float:
         v = _safe_float(d.get("piyasa_degeri"))
-        return v if (v is not None and v > 0) else -1.0
+        if v is not None and v > 0:
+            return v
+        fs = _safe_float(d.get("finansal_skor"))
+        if fs is not None and fs > 0:
+            return fs
+        return -1.0
 
     peers_sorted = sorted(all_peers, key=_mc, reverse=True)
     selected_peers = peers_sorted[:5]
@@ -2381,7 +2383,7 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
             "symbol":     _sym(d),
             "name":       _name(d),
             "selected":   False,
-            "market_cap": _safe_float(d.get("piyasa_degeri")),
+            "market_cap": _safe_float(d.get("piyasa_degeri")),  # null — piyasa_degeri henüz yazılmıyor
             "metrics":    _company_metrics(d),
         })
 
