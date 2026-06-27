@@ -2294,129 +2294,163 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     if target is None:
         raise HTTPException(status_code=404, detail=f"{symbol} aktif hisseler arasında bulunamadı")
 
-    group_info = _build_group(snapshot, target)
+    target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
+    model_group = target.get("paynotu_sector_group") or ""
     cache_status = "stale" if stale else ("miss" if was_cold else "hit")
-    elapsed = round((time.time() - t0) * 1000)
 
-    if group_info is None:
+    # ── Alt sektör yoksa erken dön ──
+    if not target_alt:
+        elapsed = round((time.time() - t0) * 1000)
         logger.info(
             f"[group_compare] symbol={symbol} cache={cache_status} "
-            f"group=none elapsed_ms={elapsed}"
+            f"alt_sektor=None elapsed_ms={elapsed}"
         )
         return {
             "symbol": symbol,
             "group": None,
+            "companies": [],
+            "available_metrics": {},
+            "metric_summaries": {},
             "metrics": {},
             "members": [],
-            "notes": ["Bu sembol için anlamlı bir peer grubu oluşturulamadı."],
-            "reason": "meaningful_peer_group_not_found",
+            "notes": ["Bu sembol için sektör bilgisi bulunamadı."],
+            "reason": "no_alt_sektor",
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "cache": not was_cold,
             "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
             "stale_cache": stale,
         }
 
-    member_syms = set(group_info["members"])
-    model_group = group_info["model_group"]
-    member_count = len(member_syms)
-    member_docs = [d for d in snapshot if _sym(d) in member_syms]
-
-    # ── PayNotu ──
-    paynotu_vals = [
-        _safe_float(d.get("paynotu_skoru"))
-        for d in member_docs
-        if d.get("has_paynotu") is True
+    # ── Aynı alt sektördeki rakipler (seçili hisse hariç) ──
+    all_peers = [
+        d for d in snapshot
+        if _sym(d) != symbol
+        and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
     ]
-    paynotu_sel = (
-        _safe_float(target.get("paynotu_skoru"))
-        if target.get("has_paynotu") is True else None
-    )
-    paynotu_metric = _build_metric(
-        "PayNotu", paynotu_vals, paynotu_sel, member_count,
-        "score", "ascending",
-    )
 
-    # ── Finansal Skor (yalnızca aynı model grubu) ──
-    fs_docs = [d for d in member_docs if d.get("paynotu_sector_group") == model_group]
-    fs_vals = [_safe_float(d.get("finansal_skor")) for d in fs_docs]
-    fs_sel = (
-        _safe_float(target.get("finansal_skor"))
-        if target.get("paynotu_sector_group") == model_group else None
-    )
-    finansal_metric = _build_metric(
-        "Finansal Skor", fs_vals, fs_sel, member_count,
-        "score", "descending",
-        extra={"model_note": model_group},
-    )
+    # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona
+    def _mc(d: dict) -> float:
+        v = _safe_float(d.get("piyasa_degeri"))
+        return v if (v is not None and v > 0) else -1.0
 
-    # ── Koşullu metrikler ──
-    cond_metrics: dict = {}
-    if model_group == "bank":
-        m = _build_metric("ROE", [_temel_val(d, "roe") for d in member_docs],
-                          _temel_val(target, "roe"), member_count, "percent", "none")
-        if m:
-            cond_metrics["roe"] = m
-        m = _build_metric("PD/DD", [_temel_val(d, "pd_dd") for d in member_docs],
-                          _temel_val(target, "pd_dd"), member_count, "ratio", "none")
-        if m:
-            cond_metrics["pd_dd"] = m
-    else:
-        m = _build_metric("F/K", [_temel_val(d, "fk") for d in member_docs],
-                          _temel_val(target, "fk"), member_count, "ratio", "none")
-        if m:
-            cond_metrics["fk"] = m
-        m = _build_metric("PD/DD", [_temel_val(d, "pd_dd") for d in member_docs],
-                          _temel_val(target, "pd_dd"), member_count, "ratio", "none")
-        if m:
-            cond_metrics["pd_dd"] = m
-        if model_group == "insurance" and len(cond_metrics) < 2:
-            m = _build_metric("ROE", [_temel_val(d, "roe") for d in member_docs],
-                              _temel_val(target, "roe"), member_count, "percent", "none")
-            if m:
-                cond_metrics["roe"] = m
+    peers_sorted = sorted(all_peers, key=_mc, reverse=True)
+    selected_peers = peers_sorted[:5]
+    actual_peer_count = len(selected_peers)
+    limited_peer_group = len(all_peers) < 5
 
-    metrics: dict = {}
-    if paynotu_metric:
-        metrics["paynotu_skoru"] = paynotu_metric
-    if finansal_metric:
-        metrics["finansal_skor"] = finansal_metric
-    metrics.update(cond_metrics)
-
+    # ── Şirket verisi ──
     def _name(d: dict) -> str:
         return d.get("company_name") or d.get("name") or _sym(d)
 
-    members_list = sorted(
-        [{"symbol": _sym(d), "name": _name(d), "selected": _sym(d) == symbol}
-         for d in member_docs],
-        key=lambda x: x["symbol"],
-    )
+    def _company_metrics(d: dict) -> dict:
+        m: dict = {}
+        if model_group != "bank":
+            m["fk"] = _temel_val(d, "fk")
+        m["finansal_skor"] = _safe_float(d.get("finansal_skor"))
+        m["paynotu_skoru"] = (
+            _safe_float(d.get("paynotu_skoru"))
+            if d.get("has_paynotu") is True else None
+        )
+        m["roe"]   = _temel_val(d, "roe")
+        m["pd_dd"] = _temel_val(d, "pd_dd")
+        return m
+
+    companies: list[dict] = [
+        {
+            "symbol":     symbol,
+            "name":       _name(target),
+            "selected":   True,
+            "market_cap": _safe_float(target.get("piyasa_degeri")),
+            "metrics":    _company_metrics(target),
+        }
+    ]
+    for d in selected_peers:
+        companies.append({
+            "symbol":     _sym(d),
+            "name":       _name(d),
+            "selected":   False,
+            "market_cap": _safe_float(d.get("piyasa_degeri")),
+            "metrics":    _company_metrics(d),
+        })
+
+    # ── Kullanılabilir metrikler ──
+    _METRIC_DEFS = [
+        ("fk",            "Fiyat/Kazanç",  "ratio"),
+        ("finansal_skor", "Finansal Skor", "score"),
+        ("paynotu_skoru", "PayNotu",        "score"),
+        ("roe",           "ROE",            "percent"),
+        ("pd_dd",         "PD/DD",          "ratio"),
+    ]
+
+    available_metrics: dict = {}
+    metric_summaries: dict  = {}
+    peer_companies = [c for c in companies if not c["selected"]]
+
+    for key, label, unit in _METRIC_DEFS:
+        if key == "fk" and model_group == "bank":
+            continue
+        available_metrics[key] = {"label": label, "unit": unit}
+        peer_vals = [
+            c["metrics"].get(key)
+            for c in peer_companies
+            if c["metrics"].get(key) is not None
+        ]
+        n = len(peer_vals)
+        if n > 0:
+            metric_summaries[key] = {
+                "peer_average":     round(sum(peer_vals) / n, 4),
+                "peer_median":      round(_statistics.median(peer_vals), 4),
+                "valid_peer_count": n,
+                "min":              round(min(peer_vals), 4),
+                "max":              round(max(peer_vals), 4),
+            }
+        else:
+            metric_summaries[key] = {
+                "peer_average":     None,
+                "peer_median":      None,
+                "valid_peer_count": 0,
+                "min":              None,
+                "max":              None,
+            }
 
     elapsed = round((time.time() - t0) * 1000)
     logger.info(
         f"[group_compare] symbol={symbol} cache={cache_status} "
-        f"group={group_info['level']} members={member_count} elapsed_ms={elapsed}"
+        f"alt_sektor={target_alt!r} peers={actual_peer_count} "
+        f"limited={limited_peer_group} elapsed_ms={elapsed}"
     )
 
     return {
         "symbol": symbol,
         "group": {
-            "level": group_info["level"],
-            "name": group_info["name"],
-            "fallback_used": group_info["fallback_used"],
-            "limited_group": group_info["limited_group"],
-            "member_count": member_count,
-            "model_group": model_group,
+            "level":             "kap_alt_sektor",
+            "name":              target_alt,
+            "member_count":      len(all_peers) + 1,
+            "limited_peer_group": limited_peer_group,
         },
-        "metrics": metrics,
-        "members": members_list,
+        "peer_selection": {
+            "method":                    "market_cap_desc",
+            "label":                     "Piyasa değerine göre en büyük rakipler",
+            "requested_peer_count":      5,
+            "actual_peer_count":         actual_peer_count,
+            "selected_company_included": True,
+        },
+        "companies":         companies,
+        "available_metrics": available_metrics,
+        "metric_summaries":  metric_summaries,
+        "members": [
+            {"symbol": c["symbol"], "name": c["name"], "selected": c["selected"]}
+            for c in companies
+        ],
+        "metrics": {},
         "notes": [
-            "Karşılaştırma mevcut benzer şirket grubu verileriyle hazırlanmıştır.",
+            "Rakipler piyasa değerine göre seçilmektedir.",
             "Eksik değerler yalnızca ilgili metriğin hesabından çıkarılmıştır.",
         ],
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "cache": not was_cold,
+        "updated_at":       datetime.now(timezone.utc).isoformat(),
+        "cache":            not was_cold,
         "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
-        "stale_cache": stale,
+        "stale_cache":      stale,
     }
 
 
