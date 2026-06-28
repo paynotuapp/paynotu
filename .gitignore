@@ -96,3 +96,18 @@ backend/diag_pump.py
 backend/analyze_distribution.py
 thyao_resp.json
 tedbir_karar/
+
+# --- Backend data / raporlar / kalibrasyonlar (repo dışı) ---
+backend/reports/
+backend/spk_belgeleri/
+backend/scripts/spk_calibration/
+backend/dataset_builder.py
+backend/smoke_test.py
+backend/test_enhanced_disc.py
+backend/trace_subscores.py
+backend/subscore_corpus.csv
+backend/topsis_validation*.csv
+backend/sektorler.pdf
+backend/*.xlsx
+backend/*.rar
+*.rar
