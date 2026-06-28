@@ -687,6 +687,79 @@ def daily_job(tickers: list[str] | None = None):
 
 # ── FİNTABLES SYNC JOB ────────────────────────────────────────────────────────
 
+FINTABLES_SECTOR_MAP: dict[int, str] = {
+    1:  "Taş, Toprak, Çimento",
+    2:  "Otomotiv",
+    3:  "Bankacılık",
+    4:  "Sigorta",
+    5:  "Otomotiv Yan Sanayi",
+    6:  "Gayrimenkul",
+    7:  "Kimya ve Plastik",
+    8:  "Bilişim ve Yazılım",
+    9:  "Tarım, Hayvancılık, Balıkçılık",
+    10: "Madencilik ve Taş Ocakçılığı",
+    11: "Gıda ve İçecek",
+    12: "Tekstil, Giyim ve Deri",
+    13: "Mobilya ve Dekorasyon",
+    14: "Kağıt ve Kağıt Ürünleri",
+    15: "Ana Metal",
+    16: "Dayanıklı Tüketim Ürünleri",
+    17: "Enerji Üretim ve Dağıtım",
+    18: "İnşaat",
+    19: "Turizm",
+    20: "Toptan ve Perakende Ticaret",
+    21: "Ulaştırma",
+    22: "Haberleşme",
+    23: "Holding",
+    24: "Aracı Kurum",
+    25: "Finansal Kiralama",
+    26: "Faktoring",
+    27: "Spor",
+    28: "İlaç ve Sağlık",
+    29: "Savunma",
+    30: "Destek ve Hizmet",
+    31: "İmalat",
+    32: "Cam, Seramik, Porselen",
+    33: "Emeklilik",
+    35: "Menkul Kıymet Yat. Ort.",
+    36: "Girişim Sermayesi Yat. Ort.",
+    37: "Ambalaj",
+    38: "Metal Eşya ve Makine",
+    39: "Varlık Yönetimi",
+    44: "Enerji Teknolojileri",
+    45: "Gıda Perakendeciliği",
+    46: "Servis Taşımacılığı ve Araç Kiralama",
+    47: "Teknolojik Ürün Ticareti",
+    48: "Giyim, Tekstil ve Deri Ürünleri Perakendeciliği",
+    49: "Tasarruf Finansman",
+}
+
+FINTABLES_SECTOR_TO_GROUP: dict[int, str] = {
+    3:  "bank",
+    4:  "insurance",
+    33: "insurance",
+    6:  "gyo",
+    23: "holding",
+    24: "financial_special",
+    25: "financial_special",
+    26: "financial_special",
+    39: "financial_special",
+    49: "financial_special",
+    17: "energy_utility",
+    44: "energy_utility",
+    8:  "technology_operational",
+    22: "technology_operational",
+    29: "technology_operational",
+    35: "investment_trust",
+    36: "investment_trust",
+    27: "service_operational",
+    19: "service_operational",
+    30: "service_operational",
+    21: "transportation",
+    46: "service_operational",
+}
+
+
 def _fmt_session(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -786,6 +859,29 @@ def fintables_sync_job():
         saati = _fmt_session(session_raw)
         if saati:
             updates['islem_saati'] = saati
+        # flags → fintables_sector_id + fintables_sector_title
+        _flags = eq.get('flags') or []
+        if isinstance(_flags, str):
+            _flags = [_flags]
+        _sector_id: int | None = None
+        for _f in _flags:
+            if str(_f).startswith('sector:'):
+                try:
+                    _sector_id = int(str(_f).split(':')[1])
+                except ValueError:
+                    pass
+                break
+        if _sector_id is not None:
+            updates['fintables_sector_id']    = _sector_id
+            updates['fintables_sector_title'] = FINTABLES_SECTOR_MAP.get(
+                _sector_id, f"Sektör {_sector_id}"
+            )
+            _group = FINTABLES_SECTOR_TO_GROUP.get(_sector_id)
+            if _group:
+                updates['paynotu_sector_group'] = _group
+        _sheet = eq.get('sheet_template')
+        if _sheet:
+            updates['fintables_sheet_template'] = _sheet
         if not updates:
             continue
         batch.update(db.collection('hisseler').document(symbol), updates)
@@ -801,7 +897,18 @@ def fintables_sync_job():
         if symbol in fs_docs:
             continue
         session_raw = data.get('session') or es_val
-        new_doc = {
+        _nflags = data.get('flags') or []
+        if isinstance(_nflags, str):
+            _nflags = [_nflags]
+        _nsector_id: int | None = None
+        for _nf in _nflags:
+            if str(_nf).startswith('sector:'):
+                try:
+                    _nsector_id = int(str(_nf).split(':')[1])
+                except ValueError:
+                    pass
+                break
+        new_doc: dict = {
             'symbol':       symbol,
             'name':         (data.get('title') or symbol).strip(),
             'logo':         data.get('logo'),
@@ -809,6 +916,17 @@ def fintables_sync_job():
             'kap_aktif':    True,
             'temel_kaynak': 'fintables',
         }
+        if _nsector_id is not None:
+            new_doc['fintables_sector_id']    = _nsector_id
+            new_doc['fintables_sector_title'] = FINTABLES_SECTOR_MAP.get(
+                _nsector_id, f"Sektör {_nsector_id}"
+            )
+            _ngroup = FINTABLES_SECTOR_TO_GROUP.get(_nsector_id)
+            if _ngroup:
+                new_doc['paynotu_sector_group'] = _ngroup
+        _nsheet = data.get('sheet_template')
+        if _nsheet:
+            new_doc['fintables_sheet_template'] = _nsheet
         batch.set(db.collection('hisseler').document(symbol), new_doc)
         batch_cnt += 1
         yeni_eklenen += 1
@@ -2301,39 +2419,53 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     if target is None:
         raise HTTPException(status_code=404, detail=f"{symbol} aktif hisseler arasında bulunamadı")
 
-    target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
-    model_group = target.get("paynotu_sector_group") or ""
+    model_group  = target.get("paynotu_sector_group") or ""
     cache_status = "stale" if stale else ("miss" if was_cold else "hit")
 
-    # ── Alt sektör yoksa erken dön ──
-    if not target_alt:
-        elapsed = round((time.time() - t0) * 1000)
-        logger.info(
-            f"[group_compare] symbol={symbol} cache={cache_status} "
-            f"alt_sektor=None elapsed_ms={elapsed}"
-        )
-        return {
-            "symbol": symbol,
-            "group": None,
-            "companies": [],
-            "available_metrics": {},
-            "metric_summaries": {},
-            "metrics": {},
-            "members": [],
-            "notes": ["Bu sembol için sektör bilgisi bulunamadı."],
-            "reason": "no_alt_sektor",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "cache": not was_cold,
-            "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
-            "stale_cache": stale,
-        }
+    target_sector_id    = target.get("fintables_sector_id")
+    target_sector_title = target.get("fintables_sector_title")
 
-    # ── Aynı alt sektördeki rakipler (seçili hisse hariç) ──
-    all_peers = [
-        d for d in snapshot
-        if _sym(d) != symbol
-        and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
-    ]
+    # ── Fintables birincil, kap_alt_sektor fallback ──
+    if target_sector_id is not None:
+        group_level = "fintables_sector"
+        group_name  = target_sector_title or FINTABLES_SECTOR_MAP.get(
+            target_sector_id, f"Sektör {target_sector_id}"
+        )
+        all_peers = [
+            d for d in snapshot
+            if _sym(d) != symbol
+            and d.get("fintables_sector_id") == target_sector_id
+        ]
+    else:
+        target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
+        if not target_alt:
+            elapsed = round((time.time() - t0) * 1000)
+            logger.info(
+                f"[group_compare] symbol={symbol} cache={cache_status} "
+                f"sector=None elapsed_ms={elapsed}"
+            )
+            return {
+                "symbol": symbol,
+                "group": None,
+                "companies": [],
+                "available_metrics": {},
+                "metric_summaries": {},
+                "metrics": {},
+                "members": [],
+                "notes": ["Bu sembol için sektör bilgisi bulunamadı."],
+                "reason": "no_sector",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "cache": not was_cold,
+                "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
+                "stale_cache": stale,
+            }
+        group_level = "kap_alt_sektor"
+        group_name  = target_alt
+        all_peers = [
+            d for d in snapshot
+            if _sym(d) != symbol
+            and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
+        ]
 
     # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona.
     # piyasa_degeri şu an Firestore'a yazılmıyor; finansal_skor proxy olarak kullanılıyor.
@@ -2430,16 +2562,16 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     elapsed = round((time.time() - t0) * 1000)
     logger.info(
         f"[group_compare] symbol={symbol} cache={cache_status} "
-        f"alt_sektor={target_alt!r} peers={actual_peer_count} "
-        f"limited={limited_peer_group} elapsed_ms={elapsed}"
+        f"sector_source={group_level!r} group={group_name!r} "
+        f"peers={actual_peer_count} limited={limited_peer_group} elapsed_ms={elapsed}"
     )
 
     return {
         "symbol": symbol,
         "group": {
-            "level":             "kap_alt_sektor",
-            "name":              target_alt,
-            "member_count":      len(all_peers) + 1,
+            "level":              group_level,
+            "name":               group_name,
+            "member_count":       len(all_peers) + 1,
             "limited_peer_group": limited_peer_group,
         },
         "peer_selection": {
@@ -2866,6 +2998,18 @@ def trigger_daily_job(
     import threading
     threading.Thread(target=daily_job, args=(body.tickers,), daemon=True).start()
     return {"status": "started", "message": "daily_job arka planda çalışıyor", "tickers": body.tickers}
+
+
+@app.post("/admin/run-fintables-sync")
+def admin_run_fintables_sync(x_admin_key: str = Header(default="")):
+    """Fintables sync'i manuel tetikle (sector_id dahil)."""
+    if _ADMIN_KEY and x_admin_key != _ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Yetkisiz")
+    try:
+        fintables_sync_job()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/admin/update-ranks")
