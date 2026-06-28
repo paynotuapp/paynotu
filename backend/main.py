@@ -764,13 +764,13 @@ YF_INDUSTRY_TR: dict[str, str] = {
     "Advertising Agencies":                     "Reklamcılık",
     "Aerospace & Defense":                      "Havacılık ve Savunma",
     "Agricultural Inputs":                      "Tarımsal Girdi",
-    "Airlines":                                 "Havayolu Taşımacılığı",
+    "Airlines":                                 "Havacılık",
     "Airports & Air Services":                  "Havalimanı ve Hava Hizmetleri",
     "Apparel Manufacturing":                    "Giyim Üretimi",
     "Apparel Retail":                           "Giyim Perakendeciliği",
     "Asset Management":                         "Varlık Yönetimi",
     "Auto & Truck Dealerships":                 "Otomobil ve Kamyon Bayiciliği",
-    "Auto Manufacturers":                       "Otomotiv Üreticileri",
+    "Auto Manufacturers":                       "Otomotiv",
     "Auto Parts":                               "Otomotiv Yan Sanayi",
     "Banks - Regional":                         "Bankacılık",
     "Beverages - Brewers":                      "Alkollü İçecekler",
@@ -780,7 +780,7 @@ YF_INDUSTRY_TR: dict[str, str] = {
     "Building Materials":                       "Yapı Malzemeleri",
     "Building Products & Equipment":            "Yapı Ürünleri ve Ekipmanları",
     "Business Equipment & Supplies":            "İş Ekipmanları ve Malzemeleri",
-    "Capital Markets":                          "Aracı Kurumlar ve Sermaye Piyasaları",
+    "Capital Markets":                          "Sermaye Piyasaları",
     "Chemicals":                                "Kimya",
     "Communication Equipment":                  "İletişim Ekipmanları",
     "Confectioners":                            "Şekerleme ve Çikolata",
@@ -790,10 +790,10 @@ YF_INDUSTRY_TR: dict[str, str] = {
     "Copper":                                   "Bakır",
     "Credit Services":                          "Finansal Kiralama ve Kredi",
     "Department Stores":                        "Mağazacılık",
-    "Drug Manufacturers - Specialty & Generic": "İlaç Üretimi",
+    "Drug Manufacturers - Specialty & Generic": "İlaç ve Biyoteknoloji",
     "Electrical Equipment & Parts":             "Elektrik Ekipmanları ve Parçaları",
     "Electronics & Computer Distribution":      "Elektronik ve Bilgisayar Dağıtımı",
-    "Engineering & Construction":               "Mühendislik ve İnşaat",
+    "Engineering & Construction":               "İnşaat ve Yapı",
     "Entertainment":                            "Spor ve Eğlence",
     "Farm & Heavy Construction Machinery":      "Tarım ve İş Makineleri",
     "Farm Products":                            "Tarım Ürünleri",
@@ -807,27 +807,27 @@ YF_INDUSTRY_TR: dict[str, str] = {
     "Household & Personal Products":            "Ev ve Kişisel Bakım Ürünleri",
     "Industrial Distribution":                  "Endüstriyel Dağıtım",
     "Information Technology Services":          "Bilgi Teknolojileri Hizmetleri",
-    "Insurance - Diversified":                  "Sigorta - Çeşitlendirilmiş",
+    "Insurance - Diversified":                  "Sigorta",
     "Insurance - Life":                         "Hayat Sigortası",
     "Insurance - Property & Casualty":          "Sigorta - Mal ve Kaza",
     "Integrated Freight & Logistics":           "Lojistik ve Kargo",
     "Internet Content & Information":           "İnternet İçerik ve Bilgi",
     "Leisure":                                  "Turizm ve Rekreasyon",
-    "Lodging":                                  "Otel ve Konaklama",
+    "Lodging":                                  "Turizm ve Konaklama",
     "Lumber & Wood Production":                 "Orman Ürünleri ve Ahşap",
     "Marine Shipping":                          "Deniz Taşımacılığı",
-    "Medical Care Facilities":                  "Sağlık Hizmetleri",
+    "Medical Care Facilities":                  "Sağlık",
     "Medical Devices":                          "Tıbbi Cihazlar",
     "Medical Distribution":                     "Tıbbi Ürün Dağıtımı",
     "Medical Instruments & Supplies":           "Tıbbi Alet ve Malzemeler",
     "Metal Fabrication":                        "Metal İşleme",
     "Oil & Gas Midstream":                      "Petrol ve Gaz Taşıma",
-    "Oil & Gas Refining & Marketing":           "Petrol Rafinerisi ve Pazarlama",
+    "Oil & Gas Refining & Marketing":           "Petrol ve Gaz",
     "Other Industrial Metals & Mining":         "Diğer Endüstriyel Metaller ve Madencilik",
-    "Packaged Foods":                           "Paketli Gıda",
+    "Packaged Foods":                           "Gıda ve İçecek",
     "Packaging & Containers":                   "Ambalaj ve Konteyner",
     "Paper & Paper Products":                   "Kağıt ve Kağıt Ürünleri",
-    "Publishing":                               "Basın ve Yayıncılık",
+    "Publishing":                               "Medya",
     "REIT - Diversified":                       "GYO",
     "REIT - Hotel & Motel":                     "GYO - Otel",
     "REIT - Industrial":                        "GYO - Endüstriyel",
@@ -836,30 +836,100 @@ YF_INDUSTRY_TR: dict[str, str] = {
     "REIT - Retail":                            "GYO - Perakende",
     "REIT - Specialty":                         "GYO - Özel",
     "Railroads":                                "Demiryolu Taşımacılığı",
-    "Real Estate - Development":                "Gayrimenkul Geliştirme ve İnşaat",
+    "Real Estate - Development":                "Gayrimenkul",
     "Real Estate - Diversified":                "Gayrimenkul - Çeşitlendirilmiş",
     "Real Estate Services":                     "Gayrimenkul Hizmetleri",
     "Rental & Leasing Services":                "Kiralama Hizmetleri",
     "Resorts & Casinos":                        "Tatil ve Turizm",
     "Restaurants":                              "Restoran ve Yiyecek Hizmetleri",
     "Security & Protection Services":           "Güvenlik ve Koruma Hizmetleri",
-    "Software - Application":                   "Yazılım - Uygulama",
+    "Software - Application":                   "Yazılım ve BT",
     "Software - Infrastructure":                "Yazılım - Altyapı",
     "Solar":                                    "Güneş Enerjisi",
     "Specialty Business Services":              "Özel İş Hizmetleri",
     "Specialty Chemicals":                      "Özel Kimyasallar",
     "Specialty Industrial Machinery":           "Özel Endüstriyel Makine",
     "Specialty Retail":                         "Uzman Perakendeciler",
-    "Steel":                                    "Demir Çelik",
+    "Steel":                                    "Demir Çelik ve Metal",
     "Telecom Services":                         "Telekomünikasyon",
-    "Textile Manufacturing":                    "Tekstil Üretimi",
+    "Textile Manufacturing":                    "Tekstil ve Giyim",
     "Thermal Coal":                             "Termik Kömür",
     "Tools & Accessories":                      "El Aletleri ve Aksesuarlar",
     "Travel Services":                          "Seyahat Hizmetleri",
     "Utilities - Independent Power Producers":  "Bağımsız Enerji Üreticileri",
-    "Utilities - Regulated Electric":           "Elektrik Dağıtımı",
+    "Utilities - Regulated Electric":           "Enerji Dağıtımı",
     "Utilities - Regulated Gas":                "Doğalgaz Dağıtımı",
     "Utilities - Renewable":                    "Yenilenebilir Enerji",
+}
+
+# Birden fazla yfinance industry'yi tek peer grubunda birleştirir.
+# Değer: hangi industry'ye map edileceği (hedef industry)
+INDUSTRY_MERGE: dict[str, str] = {
+    # Havacılık
+    "Airports & Air Services":                  "Airlines",
+    # Otomotiv
+    "Auto & Truck Dealerships":                 "Auto Manufacturers",
+    # Yenilenebilir Enerji
+    "Solar":                                    "Utilities - Renewable",
+    "Utilities - Independent Power Producers":  "Utilities - Renewable",
+    # Enerji Dağıtımı
+    "Utilities - Regulated Gas":                "Utilities - Regulated Electric",
+    # Petrol ve Gaz
+    "Oil & Gas Midstream":                      "Oil & Gas Refining & Marketing",
+    # Yazılım ve BT
+    "Software - Infrastructure":                "Software - Application",
+    "Information Technology Services":          "Software - Application",
+    # Sigorta
+    "Insurance - Life":                         "Insurance - Diversified",
+    "Insurance - Property & Casualty":          "Insurance - Diversified",
+    # Sermaye Piyasaları
+    "Asset Management":                         "Capital Markets",
+    "Credit Services":                          "Capital Markets",
+    # GYO
+    "REIT - Hotel & Motel":                     "REIT - Diversified",
+    "REIT - Industrial":                        "REIT - Diversified",
+    "REIT - Office":                            "REIT - Diversified",
+    "REIT - Residential":                       "REIT - Diversified",
+    "REIT - Retail":                            "REIT - Diversified",
+    "REIT - Specialty":                         "REIT - Diversified",
+    # Gayrimenkul
+    "Real Estate - Diversified":                "Real Estate - Development",
+    "Real Estate Services":                     "Real Estate - Development",
+    # Sağlık
+    "Medical Devices":                          "Medical Care Facilities",
+    "Medical Distribution":                     "Medical Care Facilities",
+    "Medical Instruments & Supplies":           "Medical Care Facilities",
+    # İlaç ve Biyoteknoloji
+    "Biotechnology":                            "Drug Manufacturers - Specialty & Generic",
+    # Gıda ve İçecek
+    "Beverages - Brewers":                      "Packaged Foods",
+    "Beverages - Non-Alcoholic":                "Packaged Foods",
+    "Confectioners":                            "Packaged Foods",
+    "Food Distribution":                        "Packaged Foods",
+    "Farm Products":                            "Packaged Foods",
+    # Demir Çelik ve Metal
+    "Metal Fabrication":                        "Steel",
+    # Madencilik
+    "Copper":                                   "Gold",
+    "Other Industrial Metals & Mining":         "Gold",
+    "Thermal Coal":                             "Gold",
+    # Tekstil ve Giyim
+    "Apparel Manufacturing":                    "Textile Manufacturing",
+    # Kimya
+    "Specialty Chemicals":                      "Chemicals",
+    "Agricultural Inputs":                      "Chemicals",
+    # İnşaat ve Yapı
+    "Building Materials":                       "Engineering & Construction",
+    "Building Products & Equipment":            "Engineering & Construction",
+    # Medya
+    "Publishing":                               "Broadcasting",
+    # Turizm ve Konaklama
+    "Resorts & Casinos":                        "Lodging",
+    "Travel Services":                          "Lodging",
+    # Sanayi Makineleri
+    "Farm & Heavy Construction Machinery":      "Specialty Industrial Machinery",
+    "Electrical Equipment & Parts":             "Specialty Industrial Machinery",
+    "Tools & Accessories":                      "Specialty Industrial Machinery",
 }
 
 
@@ -2585,13 +2655,19 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
 
     target_industry = _get_yf_industry(symbol)
 
+    # INDUSTRY_MERGE uygula — birleştirilmiş gruba yönlendir
+    if target_industry and target_industry in INDUSTRY_MERGE:
+        target_industry = INDUSTRY_MERGE[target_industry]
+
     if target_industry:
         group_level = "yfinance_industry"
         group_name  = YF_INDUSTRY_TR.get(target_industry, target_industry)
         all_peers   = [
             d for d in snapshot
             if _sym(d) != symbol
-            and _get_yf_industry(_sym(d)) == target_industry
+            and INDUSTRY_MERGE.get(
+                _get_yf_industry(_sym(d)), _get_yf_industry(_sym(d))
+            ) == target_industry
         ]
 
     elif target.get("fintables_sector_id") is not None:
