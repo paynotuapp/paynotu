@@ -760,6 +760,108 @@ FINTABLES_SECTOR_TO_GROUP: dict[int, str] = {
     46: "service_operational",
 }
 
+YF_INDUSTRY_TR: dict[str, str] = {
+    "Advertising Agencies":                     "Reklamcılık",
+    "Aerospace & Defense":                      "Havacılık ve Savunma",
+    "Agricultural Inputs":                      "Tarımsal Girdi",
+    "Airlines":                                 "Havayolu Taşımacılığı",
+    "Airports & Air Services":                  "Havalimanı ve Hava Hizmetleri",
+    "Apparel Manufacturing":                    "Giyim Üretimi",
+    "Apparel Retail":                           "Giyim Perakendeciliği",
+    "Asset Management":                         "Varlık Yönetimi",
+    "Auto & Truck Dealerships":                 "Otomobil ve Kamyon Bayiciliği",
+    "Auto Manufacturers":                       "Otomotiv Üreticileri",
+    "Auto Parts":                               "Otomotiv Yan Sanayi",
+    "Banks - Regional":                         "Bankacılık",
+    "Beverages - Brewers":                      "Alkollü İçecekler",
+    "Beverages - Non-Alcoholic":                "Alkolsüz İçecekler ve Meşrubat",
+    "Biotechnology":                            "Biyoteknoloji",
+    "Broadcasting":                             "Medya ve Yayıncılık",
+    "Building Materials":                       "Yapı Malzemeleri",
+    "Building Products & Equipment":            "Yapı Ürünleri ve Ekipmanları",
+    "Business Equipment & Supplies":            "İş Ekipmanları ve Malzemeleri",
+    "Capital Markets":                          "Aracı Kurumlar ve Sermaye Piyasaları",
+    "Chemicals":                                "Kimya",
+    "Communication Equipment":                  "İletişim Ekipmanları",
+    "Confectioners":                            "Şekerleme ve Çikolata",
+    "Conglomerates":                            "Holding ve Yatırım Şirketleri",
+    "Consulting Services":                      "Danışmanlık Hizmetleri",
+    "Consumer Electronics":                     "Tüketici Elektroniği",
+    "Copper":                                   "Bakır",
+    "Credit Services":                          "Finansal Kiralama ve Kredi",
+    "Department Stores":                        "Mağazacılık",
+    "Drug Manufacturers - Specialty & Generic": "İlaç Üretimi",
+    "Electrical Equipment & Parts":             "Elektrik Ekipmanları ve Parçaları",
+    "Electronics & Computer Distribution":      "Elektronik ve Bilgisayar Dağıtımı",
+    "Engineering & Construction":               "Mühendislik ve İnşaat",
+    "Entertainment":                            "Spor ve Eğlence",
+    "Farm & Heavy Construction Machinery":      "Tarım ve İş Makineleri",
+    "Farm Products":                            "Tarım Ürünleri",
+    "Financial Data & Stock Exchanges":         "Finansal Veri ve Borsalar",
+    "Food Distribution":                        "Gıda Dağıtımı",
+    "Footwear & Accessories":                   "Ayakkabı ve Aksesuar",
+    "Furnishings, Fixtures & Appliances":       "Mobilya ve Ev Aletleri",
+    "Gold":                                     "Altın Madenciliği",
+    "Grocery Stores":                           "Gıda Perakendeciliği",
+    "Health Information Services":              "Sağlık Bilgi Hizmetleri",
+    "Household & Personal Products":            "Ev ve Kişisel Bakım Ürünleri",
+    "Industrial Distribution":                  "Endüstriyel Dağıtım",
+    "Information Technology Services":          "Bilgi Teknolojileri Hizmetleri",
+    "Insurance - Diversified":                  "Sigorta - Çeşitlendirilmiş",
+    "Insurance - Life":                         "Hayat Sigortası",
+    "Insurance - Property & Casualty":          "Sigorta - Mal ve Kaza",
+    "Integrated Freight & Logistics":           "Lojistik ve Kargo",
+    "Internet Content & Information":           "İnternet İçerik ve Bilgi",
+    "Leisure":                                  "Turizm ve Rekreasyon",
+    "Lodging":                                  "Otel ve Konaklama",
+    "Lumber & Wood Production":                 "Orman Ürünleri ve Ahşap",
+    "Marine Shipping":                          "Deniz Taşımacılığı",
+    "Medical Care Facilities":                  "Sağlık Hizmetleri",
+    "Medical Devices":                          "Tıbbi Cihazlar",
+    "Medical Distribution":                     "Tıbbi Ürün Dağıtımı",
+    "Medical Instruments & Supplies":           "Tıbbi Alet ve Malzemeler",
+    "Metal Fabrication":                        "Metal İşleme",
+    "Oil & Gas Midstream":                      "Petrol ve Gaz Taşıma",
+    "Oil & Gas Refining & Marketing":           "Petrol Rafinerisi ve Pazarlama",
+    "Other Industrial Metals & Mining":         "Diğer Endüstriyel Metaller ve Madencilik",
+    "Packaged Foods":                           "Paketli Gıda",
+    "Packaging & Containers":                   "Ambalaj ve Konteyner",
+    "Paper & Paper Products":                   "Kağıt ve Kağıt Ürünleri",
+    "Publishing":                               "Basın ve Yayıncılık",
+    "REIT - Diversified":                       "GYO",
+    "REIT - Hotel & Motel":                     "GYO - Otel",
+    "REIT - Industrial":                        "GYO - Endüstriyel",
+    "REIT - Office":                            "GYO - Ofis",
+    "REIT - Residential":                       "GYO - Konut",
+    "REIT - Retail":                            "GYO - Perakende",
+    "REIT - Specialty":                         "GYO - Özel",
+    "Railroads":                                "Demiryolu Taşımacılığı",
+    "Real Estate - Development":                "Gayrimenkul Geliştirme ve İnşaat",
+    "Real Estate - Diversified":                "Gayrimenkul - Çeşitlendirilmiş",
+    "Real Estate Services":                     "Gayrimenkul Hizmetleri",
+    "Rental & Leasing Services":                "Kiralama Hizmetleri",
+    "Resorts & Casinos":                        "Tatil ve Turizm",
+    "Restaurants":                              "Restoran ve Yiyecek Hizmetleri",
+    "Security & Protection Services":           "Güvenlik ve Koruma Hizmetleri",
+    "Software - Application":                   "Yazılım - Uygulama",
+    "Software - Infrastructure":                "Yazılım - Altyapı",
+    "Solar":                                    "Güneş Enerjisi",
+    "Specialty Business Services":              "Özel İş Hizmetleri",
+    "Specialty Chemicals":                      "Özel Kimyasallar",
+    "Specialty Industrial Machinery":           "Özel Endüstriyel Makine",
+    "Specialty Retail":                         "Uzman Perakendeciler",
+    "Steel":                                    "Demir Çelik",
+    "Telecom Services":                         "Telekomünikasyon",
+    "Textile Manufacturing":                    "Tekstil Üretimi",
+    "Thermal Coal":                             "Termik Kömür",
+    "Tools & Accessories":                      "El Aletleri ve Aksesuarlar",
+    "Travel Services":                          "Seyahat Hizmetleri",
+    "Utilities - Independent Power Producers":  "Bağımsız Enerji Üreticileri",
+    "Utilities - Regulated Electric":           "Elektrik Dağıtımı",
+    "Utilities - Regulated Gas":                "Doğalgaz Dağıtımı",
+    "Utilities - Renewable":                    "Yenilenebilir Enerji",
+}
+
 
 def _fmt_session(raw: str | None) -> str | None:
     if not raw:
@@ -956,6 +1058,18 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(fintables_sync_job, CronTrigger(hour=2, minute=0), id="fintables_sync")
     scheduler.start()
     logger.info("[startup] APScheduler başlatıldı — daily_score 03:00 UTC, fintables_sync 02:00 UTC")
+
+    import threading as _t
+    def _warmup_yf():
+        try:
+            _db = _firebase_db()
+            _syms = [d.id for d in _db.collection("hisseler")
+                     .where("kap_aktif", "==", True).stream()]
+            _ensure_yf_industries(_syms)
+            logger.info(f"[yf_industry] warmup tamamlandı: {len(_syms)} sembol")
+        except Exception as e:
+            logger.warning(f"[yf_industry] warmup hatası: {e}")
+    _t.Thread(target=_warmup_yf, daemon=True).start()
 
     yield
 
@@ -2165,6 +2279,48 @@ _ALL_HISSE_CACHE_AT: float = 0.0
 _ALL_HISSE_CACHE_TTL_SECONDS: int = 3600
 _ALL_HISSE_CACHE_LOCK = _threading.Lock()
 
+# ── yfinance industry cache (24h TTL) ─────────────────────────────────────────
+_YF_INDUSTRY_CACHE: dict[str, str | None] = {}
+_YF_INDUSTRY_CACHE_AT: float = 0.0
+_YF_INDUSTRY_CACHE_TTL = 24 * 3600
+_YF_INDUSTRY_CACHE_LOCK = _threading.Lock()
+
+
+def _ensure_yf_industries(symbols: list[str]) -> None:
+    """Eksik semboller için yfinance industry paralel fetch eder."""
+    global _YF_INDUSTRY_CACHE, _YF_INDUSTRY_CACHE_AT
+    now = time.time()
+
+    with _YF_INDUSTRY_CACHE_LOCK:
+        if (now - _YF_INDUSTRY_CACHE_AT) > _YF_INDUSTRY_CACHE_TTL:
+            _YF_INDUSTRY_CACHE = {}
+            _YF_INDUSTRY_CACHE_AT = now
+        missing = [s for s in symbols if s not in _YF_INDUSTRY_CACHE]
+
+    if not missing:
+        return
+
+    def _fetch_one(symbol: str) -> tuple[str, str | None]:
+        try:
+            import yfinance as _yf
+            info = _yf.Ticker(f"{symbol}.IS").info
+            return symbol, info.get("industry")
+        except Exception:
+            return symbol, None
+
+    workers = min(20, len(missing))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for sym, ind in ex.map(_fetch_one, missing):
+            with _YF_INDUSTRY_CACHE_LOCK:
+                _YF_INDUSTRY_CACHE[sym] = ind
+
+    logger.info(f"[yf_industry] {len(missing)} sembol yfinance'tan alındı")
+
+
+def _get_yf_industry(symbol: str) -> str | None:
+    with _YF_INDUSTRY_CACHE_LOCK:
+        return _YF_INDUSTRY_CACHE.get(symbol)
+
 
 def _firestore_val(v: dict):
     """Firestore REST format'tan Python'a donustur."""
@@ -2423,11 +2579,24 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
     model_group  = target.get("paynotu_sector_group") or ""
     cache_status = "stale" if stale else ("miss" if was_cold else "hit")
 
-    target_sector_id    = target.get("fintables_sector_id")
-    target_sector_title = target.get("fintables_sector_title")
+    # ── Sektör belirleme: yfinance → Fintables → KAP ─────────────────────────
+    all_symbols = [_sym(d) for d in snapshot]
+    _ensure_yf_industries([symbol] + all_symbols)
 
-    # ── Fintables birincil, kap_alt_sektor fallback ──
-    if target_sector_id is not None:
+    target_industry = _get_yf_industry(symbol)
+
+    if target_industry:
+        group_level = "yfinance_industry"
+        group_name  = YF_INDUSTRY_TR.get(target_industry, target_industry)
+        all_peers   = [
+            d for d in snapshot
+            if _sym(d) != symbol
+            and _get_yf_industry(_sym(d)) == target_industry
+        ]
+
+    elif target.get("fintables_sector_id") is not None:
+        target_sector_id    = target.get("fintables_sector_id")
+        target_sector_title = target.get("fintables_sector_title")
         group_level = "fintables_sector"
         group_name  = target_sector_title or FINTABLES_SECTOR_MAP.get(
             target_sector_id, f"Sektör {target_sector_id}"
@@ -2437,6 +2606,7 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
             if _sym(d) != symbol
             and d.get("fintables_sector_id") == target_sector_id
         ]
+
     else:
         target_alt = _normalize_sector_name(target.get("kap_alt_sektor"))
         if not target_alt:
@@ -2446,23 +2616,23 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
                 f"sector=None elapsed_ms={elapsed}"
             )
             return {
-                "symbol": symbol,
-                "group": None,
-                "companies": [],
-                "available_metrics": {},
+                "symbol":           symbol,
+                "group":            None,
+                "companies":        [],
+                "available_metrics":{},
                 "metric_summaries": {},
-                "metrics": {},
-                "members": [],
-                "notes": ["Bu sembol için sektör bilgisi bulunamadı."],
-                "reason": "no_sector",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "cache": not was_cold,
-                "cache_age_seconds": round(time.time() - _ALL_HISSE_CACHE_AT, 1),
-                "stale_cache": stale,
+                "metrics":          {},
+                "members":          [],
+                "notes":            ["Bu sembol için sektör bilgisi bulunamadı."],
+                "reason":           "no_sector",
+                "updated_at":       datetime.now(timezone.utc).isoformat(),
+                "cache":            not was_cold,
+                "cache_age_seconds":round(time.time() - _ALL_HISSE_CACHE_AT, 1),
+                "stale_cache":      stale,
             }
         group_level = "kap_alt_sektor"
         group_name  = target_alt
-        all_peers = [
+        all_peers   = [
             d for d in snapshot
             if _sym(d) != symbol
             and _normalize_sector_name(d.get("kap_alt_sektor")) == target_alt
@@ -3024,6 +3194,18 @@ def update_ranks(x_admin_key: str = Header(default="")):
         return {"status": "ok", "mesaj": "Spek sıralama güncellendi"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/clear-yf-industry-cache")
+def admin_clear_yf_industry_cache(x_admin_key: str = Header(default="")):
+    """yfinance industry cache'ini temizle."""
+    if _ADMIN_KEY and x_admin_key != _ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Yetkisiz")
+    global _YF_INDUSTRY_CACHE, _YF_INDUSTRY_CACHE_AT
+    with _YF_INDUSTRY_CACHE_LOCK:
+        _YF_INDUSTRY_CACHE = {}
+        _YF_INDUSTRY_CACHE_AT = 0.0
+    return {"status": "ok", "cleared": True}
 
 
 @app.get("/test/xu100")
