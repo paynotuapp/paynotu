@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:pay/widgets/grup_karsilastirma_karti.dart';
 
 String get _compareApiBaseUrl {
   const envUrl = String.fromEnvironment('PAYNOTU_API_URL', defaultValue: '');
@@ -15,10 +16,7 @@ String get _compareApiBaseUrl {
 class FinansalPanel extends StatelessWidget {
   final Map<String, dynamic> hisseData;
 
-  const FinansalPanel({
-    super.key,
-    required this.hisseData,
-  });
+  const FinansalPanel({super.key, required this.hisseData});
 
   Map<String, dynamic> get _motorDetay {
     final v = hisseData['motor_detay'];
@@ -180,7 +178,8 @@ class FinansalPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    final bool veriYok = _roe == null &&
+    final bool veriYok =
+        _roe == null &&
         _pdDd == null &&
         _fk == null &&
         _netKarMarji == null &&
@@ -207,14 +206,20 @@ class FinansalPanel extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                     'Finansal veri henüz yok',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: cs.onSurfaceVariant,
-                    ),
+                    style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant),
                   ),
                 ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GrupKarsilastirmaKarti(
+                key: ValueKey('gc_${(hisseData['symbol'] as String?) ?? ''}'),
+                symbol: (hisseData['symbol'] as String?) ?? '',
+                apiBaseUrl: _compareApiBaseUrl,
+              ),
+            ),
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _GetiriPerformansBolumu(hisseData: hisseData),
@@ -240,13 +245,7 @@ class FinansalPanel extends StatelessWidget {
       _normPdDd(_pdDd),
     ];
 
-    const radarEtiketler = [
-      'ROE',
-      'F/K',
-      'Kâr Marjı',
-      'Büyüme',
-      'Değerleme',
-    ];
+    const radarEtiketler = ['ROE', 'F/K', 'Kâr Marjı', 'Büyüme', 'Değerleme'];
 
     final barVeriler = [
       _BarVeri(
@@ -264,11 +263,7 @@ class FinansalPanel extends StatelessWidget {
         oran: _normNetKarMarji(_netKarMarji),
         renk: const Color(0xFFE6A817),
       ),
-      _BarVeri(
-        etiket: 'ROE',
-        oran: _normRoe(_roe),
-        renk: cs.primary,
-      ),
+      _BarVeri(etiket: 'ROE', oran: _normRoe(_roe), renk: cs.primary),
       _BarVeri(
         etiket: 'Borç',
         oran: _borcFavok == null
@@ -317,11 +312,7 @@ class FinansalPanel extends StatelessWidget {
           const SizedBox(height: 8),
           _MetrikGrid(
             metrikler: [
-              _MetrikVeri(
-                etiket: 'F/K',
-                deger: _x(_fk),
-                alt: _fkAlt(_fk),
-              ),
+              _MetrikVeri(etiket: 'F/K', deger: _x(_fk), alt: _fkAlt(_fk)),
               _MetrikVeri(
                 etiket: 'PD/DD',
                 deger: _sayi(_pdDd),
@@ -332,11 +323,7 @@ class FinansalPanel extends StatelessWidget {
                 deger: _pct(_netKarMarji),
                 alt: _marjAlt(_netKarMarji),
               ),
-              _MetrikVeri(
-                etiket: 'ROE',
-                deger: _pct(_roe),
-                alt: _roeAlt(_roe),
-              ),
+              _MetrikVeri(etiket: 'ROE', deger: _pct(_roe), alt: _roeAlt(_roe)),
               _MetrikVeri(
                 etiket: 'Borç/FAVÖK',
                 deger: _sayi(_borcFavok),
@@ -355,6 +342,14 @@ class FinansalPanel extends StatelessWidget {
           ],
           // ── Fundamental Engine Skoru ─────────────────────────────
           _FundamentalSkorBolumu(hisseData: hisseData),
+
+          // ── Grup Karşılaştırması ──────────────────────────────
+          const SizedBox(height: 8),
+          GrupKarsilastirmaKarti(
+            key: ValueKey('gc_${(hisseData['symbol'] as String?) ?? ''}'),
+            symbol: (hisseData['symbol'] as String?) ?? '',
+            apiBaseUrl: _compareApiBaseUrl,
+          ),
 
           // ── Getiri Performansı ────────────────────────────────
           _GetiriPerformansBolumu(hisseData: hisseData),
@@ -390,12 +385,18 @@ class _FundamentalSkorBolumu extends StatelessWidget {
     if (m == null) return raw.trim();
     final year = m.group(1)!;
     switch (m.group(2)!.trim()) {
-      case '3 Aylık':  return '$year Q1';
-      case '6 Aylık':  return '$year Q2';
-      case '9 Aylık':  return '$year Q3';
-      case '12 Aylık': return '$year FY';
-      case 'Yıllık':   return '$year FY';
-      default: return raw.trim();
+      case '3 Aylık':
+        return '$year Q1';
+      case '6 Aylık':
+        return '$year Q2';
+      case '9 Aylık':
+        return '$year Q3';
+      case '12 Aylık':
+        return '$year FY';
+      case 'Yıllık':
+        return '$year FY';
+      default:
+        return raw.trim();
     }
   }
 
@@ -407,7 +408,9 @@ class _FundamentalSkorBolumu extends StatelessWidget {
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(ctx).size.height * 0.7,
@@ -464,17 +467,19 @@ class _FundamentalSkorBolumu extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    final finansalSkor      = (hisseData['finansal_skor']      as num?)?.toDouble();
-    final finansalLabel     =  hisseData['finansal_skor_label'] as String?;
-    final finansalSubscores =  hisseData['finansal_subscores']  as Map<String, dynamic>?;
-    final piotroskiScore    = (hisseData['piotroski_score']     as num?)?.toInt();
-    final finansalAciklama  =  hisseData['finansal_aciklama']   as String?;
-    final rawPeriod         = (hisseData['finansal_period']     as String?)?.trim()
-                           ?? (hisseData['financial_period']    as String?)?.trim()
-                           ?? (hisseData['period']              as String?)?.trim();
-    final finansalDonem     = (rawPeriod != null && rawPeriod.isNotEmpty)
-                              ? _normalizePeriod(rawPeriod)
-                              : null;
+    final finansalSkor = (hisseData['finansal_skor'] as num?)?.toDouble();
+    final finansalLabel = hisseData['finansal_skor_label'] as String?;
+    final finansalSubscores =
+        hisseData['finansal_subscores'] as Map<String, dynamic>?;
+    final piotroskiScore = (hisseData['piotroski_score'] as num?)?.toInt();
+    final finansalAciklama = hisseData['finansal_aciklama'] as String?;
+    final rawPeriod =
+        (hisseData['finansal_period'] as String?)?.trim() ??
+        (hisseData['financial_period'] as String?)?.trim() ??
+        (hisseData['period'] as String?)?.trim();
+    final finansalDonem = (rawPeriod != null && rawPeriod.isNotEmpty)
+        ? _normalizePeriod(rawPeriod)
+        : null;
 
     if (finansalSkor == null &&
         (finansalSubscores == null || finansalSubscores.isEmpty) &&
@@ -485,11 +490,11 @@ class _FundamentalSkorBolumu extends StatelessWidget {
 
     const subskorAdlar = <String, String>{
       'profitability': 'Karlılık',
-      'growth':        'Büyüme',
-      'valuation':     'Değerleme',
-      'stability':     'İstikrar',
+      'growth': 'Büyüme',
+      'valuation': 'Değerleme',
+      'stability': 'İstikrar',
       'balance_sheet': 'Bilanço',
-      'cash_flow':     'Nakit Akışı',
+      'cash_flow': 'Nakit Akışı',
     };
 
     return Column(
@@ -505,33 +510,45 @@ class _FundamentalSkorBolumu extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Finansal Skor',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: cs.onSurface)),
+                  Text(
+                    'Finansal Skor',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
                   if (finansalLabel != null && finansalLabel.isNotEmpty)
-                    Text(finansalLabel,
-                        style: TextStyle(
-                            fontSize: 11, color: cs.onSurfaceVariant)),
+                    Text(
+                      finansalLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
             ),
             if (finansalSkor != null)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: _skorRengi(context, finansalSkor)
-                      .withValues(alpha: 0.12),
+                  color: _skorRengi(
+                    context,
+                    finansalSkor,
+                  ).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   '${finansalSkor.toStringAsFixed(2)} / 10',
                   style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: _skorRengi(context, finansalSkor)),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: _skorRengi(context, finansalSkor),
+                  ),
                 ),
               ),
           ],
@@ -541,19 +558,25 @@ class _FundamentalSkorBolumu extends StatelessWidget {
         if (finansalSubscores != null &&
             subskorAdlar.keys.any((k) => finansalSubscores[k] != null)) ...[
           const SizedBox(height: 10),
-          Text('Alt Kırılımlar',
-              style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w600)),
+          Text(
+            'Alt Kırılımlar',
+            style: TextStyle(
+              fontSize: 11,
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           if (finansalDonem != null) ...[
             const SizedBox(height: 2),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Dönem: $finansalDonem',
-                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
-                if (finansalAciklama != null && finansalAciklama.isNotEmpty) ...[
+                Text(
+                  'Dönem: $finansalDonem',
+                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+                if (finansalAciklama != null &&
+                    finansalAciklama.isNotEmpty) ...[
                   const SizedBox(width: 6),
                   GestureDetector(
                     onTap: () => _aciklamaGoster(context, finansalAciklama),
@@ -578,21 +601,26 @@ class _FundamentalSkorBolumu extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(e.value,
-                          style: TextStyle(
-                              fontSize: 12, color: cs.onSurfaceVariant)),
+                      child: Text(
+                        e.value,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                     Text(
                       (finansalSubscores[e.key] as num)
                           .toDouble()
                           .toStringAsFixed(2),
                       style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _skorRengi(
-                              context,
-                              (finansalSubscores[e.key] as num)
-                                  .toDouble())),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: _skorRengi(
+                          context,
+                          (finansalSubscores[e.key] as num).toDouble(),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -605,16 +633,19 @@ class _FundamentalSkorBolumu extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text('Piotroski',
-                    style: TextStyle(
-                        fontSize: 12, color: cs.onSurfaceVariant)),
+                child: Text(
+                  'Piotroski',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
               ),
-              Text('$piotroskiScore / 9',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: _skorRengi(
-                          context, piotroskiScore * 10.0 / 9.0))),
+              Text(
+                '$piotroskiScore / 9',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: _skorRengi(context, piotroskiScore * 10.0 / 9.0),
+                ),
+              ),
             ],
           ),
         ],
@@ -640,9 +671,7 @@ class _BarVeri {
 class _BarSatir extends StatelessWidget {
   final _BarVeri veri;
 
-  const _BarSatir({
-    required this.veri,
-  });
+  const _BarSatir({required this.veri});
 
   @override
   Widget build(BuildContext context) {
@@ -654,10 +683,7 @@ class _BarSatir extends StatelessWidget {
           width: 72,
           child: Text(
             veri.etiket,
-            style: TextStyle(
-              fontSize: 11,
-              color: cs.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
           ),
         ),
         Expanded(
@@ -691,9 +717,7 @@ class _MetrikVeri {
 class _MetrikGrid extends StatelessWidget {
   final List<_MetrikVeri> metrikler;
 
-  const _MetrikGrid({
-    required this.metrikler,
-  });
+  const _MetrikGrid({required this.metrikler});
 
   @override
   Widget build(BuildContext context) {
@@ -712,9 +736,7 @@ class _MetrikGrid extends StatelessWidget {
 class _MetrikKart extends StatelessWidget {
   final _MetrikVeri veri;
 
-  const _MetrikKart({
-    required this.veri,
-  });
+  const _MetrikKart({required this.veri});
 
   @override
   Widget build(BuildContext context) {
@@ -732,10 +754,7 @@ class _MetrikKart extends StatelessWidget {
         children: [
           Text(
             veri.etiket,
-            style: TextStyle(
-              fontSize: 10,
-              color: cs.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -751,10 +770,7 @@ class _MetrikKart extends StatelessWidget {
           const SizedBox(height: 1),
           Text(
             veri.alt,
-            style: TextStyle(
-              fontSize: 9,
-              color: cs.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -767,9 +783,7 @@ class _MetrikKart extends StatelessWidget {
 class _RsiKart extends StatelessWidget {
   final double rsi;
 
-  const _RsiKart({
-    required this.rsi,
-  });
+  const _RsiKart({required this.rsi});
 
   String get _durum {
     if (rsi >= 70) return 'Aşırı alım bölgesi';
@@ -786,10 +800,10 @@ class _RsiKart extends StatelessWidget {
     final renk = rsi >= 70
         ? Colors.red
         : rsi <= 30
-            ? Colors.orange
-            : rsi >= 55
-                ? cs.primary
-                : cs.onSurfaceVariant;
+        ? Colors.orange
+        : rsi >= 55
+        ? cs.primary
+        : cs.onSurfaceVariant;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -804,10 +818,7 @@ class _RsiKart extends StatelessWidget {
             children: [
               const Text(
                 'RSI 14',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
               ),
               const Spacer(),
               Text(
@@ -835,26 +846,17 @@ class _RsiKart extends StatelessWidget {
             children: [
               Text(
                 '30',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: cs.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
               ),
               const Spacer(),
               Text(
                 _durum,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),
               const Spacer(),
               Text(
                 '70',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: cs.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
               ),
             ],
           ),
@@ -947,16 +949,8 @@ class _RadarPainter extends CustomPainter {
 
     final dolguPaint = Paint()
       ..shader = RadialGradient(
-        colors: [
-          renk.withValues(alpha: 0.55),
-          renk.withValues(alpha: 0.20),
-        ],
-      ).createShader(
-        Rect.fromCircle(
-          center: merkez,
-          radius: maxYaricap,
-        ),
-      )
+        colors: [renk.withValues(alpha: 0.55), renk.withValues(alpha: 0.20)],
+      ).createShader(Rect.fromCircle(center: merkez, radius: maxYaricap))
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(dataPath, dolguPaint);
@@ -992,13 +986,7 @@ class _RadarPainter extends CustomPainter {
         textDirection: ui.TextDirection.ltr,
       )..layout();
 
-      tp.paint(
-        canvas,
-        Offset(
-          lx - tp.width / 2,
-          ly - tp.height / 2,
-        ),
-      );
+      tp.paint(canvas, Offset(lx - tp.width / 2, ly - tp.height / 2));
     }
   }
 
@@ -1016,13 +1004,13 @@ class _GetiriPerformansBolumu extends StatelessWidget {
   const _GetiriPerformansBolumu({required this.hisseData});
 
   static const _donemler = <(String, String)>[
-    ('1 Gün',   'gunluk_degisim_yuzde'),
+    ('1 Gün', 'gunluk_degisim_yuzde'),
     ('1 Hafta', 'haftalik_degisim_yuzde'),
-    ('1 Ay',    'aylik_degisim_yuzde'),
-    ('3 Ay',    'uc_ay_degisim_yuzde'),
-    ('6 Ay',    'alti_ay_degisim_yuzde'),
-    ('YBB',     'ybb_degisim_yuzde'),
-    ('1 Yıl',   'yillik_degisim_yuzde'),
+    ('1 Ay', 'aylik_degisim_yuzde'),
+    ('3 Ay', 'uc_ay_degisim_yuzde'),
+    ('6 Ay', 'alti_ay_degisim_yuzde'),
+    ('YBB', 'ybb_degisim_yuzde'),
+    ('1 Yıl', 'yillik_degisim_yuzde'),
   ];
 
   double? _d(String key) {
@@ -1039,9 +1027,7 @@ class _GetiriPerformansBolumu extends StatelessWidget {
         .toList();
     final temettu = _d('temettu_verimi');
 
-    final maxAbs = values
-        .map((e) => e.deger?.abs() ?? 0.0)
-        .fold(0.0, math.max);
+    final maxAbs = values.map((e) => e.deger?.abs() ?? 0.0).fold(0.0, math.max);
     final normalizer = maxAbs > 0 ? maxAbs : 1.0;
 
     return Column(
@@ -1116,7 +1102,9 @@ class _FiyatAraligiKart extends StatelessWidget {
       builder: (ctx) {
         final csi = Theme.of(ctx).colorScheme;
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1148,7 +1136,11 @@ class _FiyatAraligiKart extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 child: Text(
                   'Teorik taban ve tavan; önceki kapanış, BIST fiyat marjı ve fiyat adımı esas alınarak hesaplanır.',
-                  style: TextStyle(fontSize: 13, color: csi.onSurface, height: 1.6),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: csi.onSurface,
+                    height: 1.6,
+                  ),
                 ),
               ),
             ],
@@ -1162,73 +1154,116 @@ class _FiyatAraligiKart extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!_herhangiVarMi) return const SizedBox.shrink();
 
-    final cs      = Theme.of(context).colorScheme;
-    final bant    = _n('yillik_bant_konum_yuzde');
-    final dipten  = _n('yillik_dipten_uzaklik_yuzde');
+    final cs = Theme.of(context).colorScheme;
+    final bant = _n('yillik_bant_konum_yuzde');
+    final dipten = _n('yillik_dipten_uzaklik_yuzde');
     final zirveye = _n('yillik_zirveye_uzaklik_yuzde');
 
-    final bool gunIciVar = _n('gun_ici_dusuk_fiyat') != null || _n('gun_ici_yuksek_fiyat') != null;
-    final bool onikAyVar = _n('yillik_dip_fiyat') != null || _n('yillik_zirve_fiyat') != null;
-    final bool limitVar  = _n('teorik_taban_fiyat') != null || _n('teorik_tavan_fiyat') != null;
+    final bool gunIciVar =
+        _n('gun_ici_dusuk_fiyat') != null || _n('gun_ici_yuksek_fiyat') != null;
+    final bool onikAyVar =
+        _n('yillik_dip_fiyat') != null || _n('yillik_zirve_fiyat') != null;
+    final bool limitVar =
+        _n('teorik_taban_fiyat') != null || _n('teorik_tavan_fiyat') != null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      decoration: BoxDecoration(color: cs.surface, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Text('Fiyat Aralığı',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cs.onSurface)),
-            const SizedBox(width: 4),
-            GestureDetector(
-              onTap: () => _aciklamaGoster(context),
-              child: Icon(Icons.info_outline, size: 13, color: cs.onSurfaceVariant),
-            ),
-          ]),
+          Row(
+            children: [
+              Text(
+                'Fiyat Aralığı',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => _aciklamaGoster(context),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 13,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
-          if (gunIciVar) _FaCompactSatir(
-            bolum: 'Gün İçi',
-            solEtiket: 'Düşük', solDeger: _fiyat(_n('gun_ici_dusuk_fiyat')),
-            sagEtiket: 'Yüksek', sagDeger: _fiyat(_n('gun_ici_yuksek_fiyat')),
-          ),
+          if (gunIciVar)
+            _FaCompactSatir(
+              bolum: 'Gün İçi',
+              solEtiket: 'Düşük',
+              solDeger: _fiyat(_n('gun_ici_dusuk_fiyat')),
+              sagEtiket: 'Yüksek',
+              sagDeger: _fiyat(_n('gun_ici_yuksek_fiyat')),
+            ),
           if (gunIciVar && onikAyVar) const SizedBox(height: 4),
-          if (onikAyVar) _FaCompactSatir(
-            bolum: '12 Ay',
-            solEtiket: 'Dip', solDeger: _fiyat(_n('yillik_dip_fiyat')),
-            sagEtiket: 'Zirve', sagDeger: _fiyat(_n('yillik_zirve_fiyat')),
-          ),
+          if (onikAyVar)
+            _FaCompactSatir(
+              bolum: '12 Ay',
+              solEtiket: 'Dip',
+              solDeger: _fiyat(_n('yillik_dip_fiyat')),
+              sagEtiket: 'Zirve',
+              sagDeger: _fiyat(_n('yillik_zirve_fiyat')),
+            ),
           if (onikAyVar && limitVar) const SizedBox(height: 4),
-          if (limitVar) _FaCompactSatir(
-            bolum: 'Limit',
-            solEtiket: 'Taban', solDeger: _fiyat(_n('teorik_taban_fiyat')),
-            sagEtiket: 'Tavan', sagDeger: _fiyat(_n('teorik_tavan_fiyat')),
-          ),
+          if (limitVar)
+            _FaCompactSatir(
+              bolum: 'Limit',
+              solEtiket: 'Taban',
+              solDeger: _fiyat(_n('teorik_taban_fiyat')),
+              sagEtiket: 'Tavan',
+              sagDeger: _fiyat(_n('teorik_tavan_fiyat')),
+            ),
           if (bant != null) ...[
             const SizedBox(height: 6),
-            Row(children: [
-              Expanded(child: ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: (bant / 100).clamp(0.0, 1.0),
-                  minHeight: 4,
-                  backgroundColor: cs.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: (bant / 100).clamp(0.0, 1.0),
+                      minHeight: 4,
+                      backgroundColor: cs.surfaceContainerHighest,
+                      valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                    ),
+                  ),
                 ),
-              )),
-              const SizedBox(width: 6),
-              Text('${bant.toStringAsFixed(1).replaceAll('.', ',')}%',
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cs.onSurface)),
-            ]),
+                const SizedBox(width: 6),
+                Text(
+                  '${bant.toStringAsFixed(1).replaceAll('.', ',')}%',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
             if (dipten != null || zirveye != null) ...[
               const SizedBox(height: 3),
-              Row(children: [
-                Text('Dipten ${_pctDirect(dipten)}',
-                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                const Spacer(),
-                Text('Zirveye ${_pctDirect(zirveye)}',
-                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-              ]),
+              Row(
+                children: [
+                  Text(
+                    'Dipten ${_pctDirect(dipten)}',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Zirveye ${_pctDirect(zirveye)}',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
             ],
           ],
         ],
@@ -1256,28 +1291,39 @@ class _FaCompactSatir extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final labelStyle = TextStyle(fontSize: 10, color: cs.onSurfaceVariant);
-    final valueStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurface);
+    final valueStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: cs.onSurface,
+    );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
           width: 52,
-          child: Text(bolum, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+          child: Text(
+            bolum,
+            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+          ),
         ),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(solEtiket, style: labelStyle),
-            Text(solDeger, style: valueStyle),
-          ],
-        )),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(sagEtiket, style: labelStyle),
-            Text(sagDeger, style: valueStyle),
-          ],
-        )),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(solEtiket, style: labelStyle),
+              Text(solDeger, style: valueStyle),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(sagEtiket, style: labelStyle),
+              Text(sagDeger, style: valueStyle),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1310,7 +1356,12 @@ class _GetiriKarsilastirmasiKartState
 
   static const _donemler = ['1G', '1H', '1A', '3A', '6A', 'YBB', '1Y'];
   static const _varliklarSira = [
-    'symbol', 'altin', 'usdtry', 'eurtry', 'bist100', 'faiz'
+    'symbol',
+    'altin',
+    'usdtry',
+    'eurtry',
+    'bist100',
+    'faiz',
   ];
 
   void _startLoadingTimer() {
@@ -1350,17 +1401,26 @@ class _GetiriKarsilastirmasiKartState
     final sym = widget.symbol;
     if (sym.isEmpty) {
       _loadingTimer?.cancel();
-      if (mounted) setState(() { _loading = false; _error = false; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = false;
+        });
       return;
     }
     if (mounted) {
-      setState(() { _loading = true; _error = false; _data = null; });
+      setState(() {
+        _loading = true;
+        _error = false;
+        _data = null;
+      });
       _startLoadingTimer();
     }
     debugPrint('COMPARE fetch start: $sym');
     try {
       final uri = Uri.parse(
-          '${widget.apiBaseUrl}/compare/${Uri.encodeComponent(sym)}');
+        '${widget.apiBaseUrl}/compare/${Uri.encodeComponent(sym)}',
+      );
       final response = await http
           .get(uri, headers: const {'Accept': 'application/json'})
           .timeout(const Duration(seconds: 25));
@@ -1381,13 +1441,16 @@ class _GetiriKarsilastirmasiKartState
       debugPrint('COMPARE fetch error: $sym $e');
     }
     _loadingTimer?.cancel();
-    if (mounted) setState(() { _loading = false; _error = true; });
+    if (mounted)
+      setState(() {
+        _loading = false;
+        _error = true;
+      });
   }
 
   void _infoGoster(BuildContext context) {
-    final notlar = (_data?['notes'] as List?)
-            ?.map((e) => e.toString())
-            .toList() ??
+    final notlar =
+        (_data?['notes'] as List?)?.map((e) => e.toString()).toList() ??
         [
           'Altın değeri ons altın fiyatının TCMB USD kuru ile TL/gram karşılığına çevrilmesiyle hesaplanır.',
           'Faiz değeri TCMB AOFM yıllık oranından basit dönemsel orana çevrilmiştir; politika faizi değildir.',
@@ -1400,8 +1463,9 @@ class _GetiriKarsilastirmasiKartState
       builder: (ctx) {
         final csi = Theme.of(ctx).colorScheme;
         return Padding(
-          padding:
-              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1434,7 +1498,10 @@ class _GetiriKarsilastirmasiKartState
                 child: Text(
                   'Bu tablo, seçili hissenin geçmiş dönem getirilerini altın, döviz, BIST 100 ve TCMB AOFM ile karşılaştırır. Geleceğe yönelik beklenti veya yatırım tavsiyesi içermez.',
                   style: TextStyle(
-                      fontSize: 13, color: csi.onSurface, height: 1.5),
+                    fontSize: 13,
+                    color: csi.onSurface,
+                    height: 1.5,
+                  ),
                 ),
               ),
               Padding(
@@ -1448,16 +1515,22 @@ class _GetiriKarsilastirmasiKartState
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('• ',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: csi.onSurfaceVariant)),
+                              Text(
+                                '• ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: csi.onSurfaceVariant,
+                                ),
+                              ),
                               Expanded(
-                                child: Text(n,
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: csi.onSurfaceVariant,
-                                        height: 1.5)),
+                                child: Text(
+                                  n,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: csi.onSurfaceVariant,
+                                    height: 1.5,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -1502,11 +1575,14 @@ class _GetiriKarsilastirmasiKartState
         children: [
           const Divider(),
           const SizedBox(height: 8),
-          Text('Getiri Karşılaştırması',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface)),
+          Text(
+            'Getiri Karşılaştırması',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -1514,7 +1590,9 @@ class _GetiriKarsilastirmasiKartState
                 height: 14,
                 width: 14,
                 child: CircularProgressIndicator(
-                    strokeWidth: 1.5, color: cs.primary),
+                  strokeWidth: 1.5,
+                  color: cs.primary,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -1522,15 +1600,19 @@ class _GetiriKarsilastirmasiKartState
                   uzunBekleme
                       ? 'Veri beklenenden uzun sürüyor...'
                       : kisaBekleme
-                          ? 'Piyasa karşılaştırmaları hazırlanıyor...'
-                          : 'Yükleniyor...',
+                      ? 'Piyasa karşılaştırmaları hazırlanıyor...'
+                      : 'Yükleniyor...',
                   style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                 ),
               ),
               if (uzunBekleme)
                 GestureDetector(
                   onTap: _fetch,
-                  child: Icon(Icons.refresh, size: 16, color: cs.onSurfaceVariant),
+                  child: Icon(
+                    Icons.refresh,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
                 ),
             ],
           ),
@@ -1545,21 +1627,32 @@ class _GetiriKarsilastirmasiKartState
         children: [
           const Divider(),
           const SizedBox(height: 8),
-          Row(children: [
-            Text('Getiri Karşılaştırması',
+          Row(
+            children: [
+              Text(
+                'Getiri Karşılaştırması',
                 style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface)),
-            const Spacer(),
-            GestureDetector(
-              onTap: _fetch,
-              child: Icon(Icons.refresh, size: 16, color: cs.onSurfaceVariant),
-            ),
-          ]),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _fetch,
+                child: Icon(
+                  Icons.refresh,
+                  size: 16,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
-          Text('Karşılaştırma verisi yüklenemedi',
-              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          Text(
+            'Karşılaştırma verisi yüklenemedi',
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
           const SizedBox(height: 10),
         ],
       );
@@ -1572,14 +1665,19 @@ class _GetiriKarsilastirmasiKartState
         children: [
           const Divider(),
           const SizedBox(height: 8),
-          Text('Getiri Karşılaştırması',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface)),
+          Text(
+            'Getiri Karşılaştırması',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text('Karşılaştırma verisi yok',
-              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          Text(
+            'Karşılaştırma verisi yok',
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
           const SizedBox(height: 10),
         ],
       );
@@ -1596,18 +1694,27 @@ class _GetiriKarsilastirmasiKartState
         const Divider(),
         const SizedBox(height: 8),
 
-        Row(children: [
-          Text('Getiri Karşılaştırması',
+        Row(
+          children: [
+            Text(
+              'Getiri Karşılaştırması',
               style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface)),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: () => _infoGoster(context),
-            child: Icon(Icons.info_outline, size: 14, color: cs.onSurfaceVariant),
-          ),
-        ]),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(width: 4),
+            GestureDetector(
+              onTap: () => _infoGoster(context),
+              child: Icon(
+                Icons.info_outline,
+                size: 14,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
 
         const SizedBox(height: 8),
 
@@ -1622,7 +1729,9 @@ class _GetiriKarsilastirmasiKartState
                   onTap: () => setState(() => _secilenDonem = d),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: secili ? cs.primary : cs.surface,
                       borderRadius: BorderRadius.circular(20),
@@ -1634,8 +1743,9 @@ class _GetiriKarsilastirmasiKartState
                       d,
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight:
-                            secili ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: secili
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                         color: secili ? Colors.white : cs.onSurface,
                       ),
                     ),
@@ -1651,9 +1761,10 @@ class _GetiriKarsilastirmasiKartState
         if (hepsiNull)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text('Karşılaştırma verisi yok',
-                style:
-                    TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+            child: Text(
+              'Karşılaştırma verisi yok',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
           )
         else
           for (final key in _varliklarSira)
@@ -1749,7 +1860,10 @@ class _GetiriSatir extends StatelessWidget {
               ),
             ),
             const Expanded(child: SizedBox.shrink()),
-            Text('—', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+            Text(
+              '—',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
           ],
         ),
       );
@@ -1759,8 +1873,8 @@ class _GetiriSatir extends StatelessWidget {
     final barRenk = isTemettu
         ? cs.primary
         : pozitif
-            ? Colors.green.shade600
-            : Colors.red.shade600;
+        ? Colors.green.shade600
+        : Colors.red.shade600;
 
     final barOran = (deger!.abs() / normalizer).clamp(0.0, 1.0);
     final degerMetni = isTemettu

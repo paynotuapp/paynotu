@@ -73,3 +73,26 @@ calibration_output.txt
 *.bak
 *.tmp
 *~
+
+# --- Backend diagnostic / test scripts (tek kullanımlık) ---
+backend/_diag_*
+backend/_test_*
+backend/_audit_*
+backend/_batch_*
+backend/_coverage_*
+backend/_delist_*
+backend/_explore_*
+backend/_mapping_*
+backend/_parse_*
+backend/_pdf_*
+backend/_probe_*
+backend/_smoke_*
+backend/_sport_*
+backend/_verify_*
+backend/_ygyo_*
+backend/thyao_resp.json
+backend/tedbir_karar/
+backend/diag_pump.py
+backend/analyze_distribution.py
+thyao_resp.json
+tedbir_karar/
