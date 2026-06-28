@@ -544,6 +544,7 @@ def daily_job(tickers: list[str] | None = None):
                     "has_paynotu":             final.paynotu_score is not None,
                     "halk_skoru":              final.emotional_score,
                     "raw_spek_score":          cache["f"].spek_score,
+                    "piyasa_degeri":           cache["f"].piyasa_degeri,
                     "anomali_skoru":           final.paynotu_score,
                     "emotional_risk":          final.emotional_risk,
                     "emotional_grip":          final.emotional_grip,
@@ -2468,8 +2469,8 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
         ]
 
     # Piyasa değerine göre büyükten küçüğe sırala; eksik değer en sona.
-    # piyasa_degeri şu an Firestore'a yazılmıyor; finansal_skor proxy olarak kullanılıyor.
-    # Gelecekte piyasa_degeri yazılırsa ölçek farkı (milyar TL > 10) nedeniyle otomatik kazanır.
+    # piyasa_degeri = last_price * odenmis_sermaye (daily_job tarafından yazılıyor).
+    # Mevcut değer varsa önce gelir; eksikse finansal_skor proxy olarak kullanılıyor.
     def _mc(d: dict) -> float:
         v = _safe_float(d.get("piyasa_degeri"))
         if v is not None and v > 0:
@@ -2515,7 +2516,7 @@ def _get_group_compare_payload(symbol: str, db) -> dict:
             "symbol":     _sym(d),
             "name":       _name(d),
             "selected":   False,
-            "market_cap": _safe_float(d.get("piyasa_degeri")),  # null — piyasa_degeri henüz yazılmıyor
+            "market_cap": _safe_float(d.get("piyasa_degeri")),
             "metrics":    _company_metrics(d),
         })
 

@@ -191,6 +191,7 @@ class SpekResult:
     haber_carpani: float = 1.0
     kategori: str = "TEMIZ"  # 'TEMIZ' | 'GECMIS_PD' | 'YENI_PD' | 'AKTIF_PD'
     anomaly_metrics: Optional[AnomalyActivityMetrics] = None
+    piyasa_degeri: Optional[float] = None
 
     def copyWith(self, **kwargs) -> "SpekResult":
         import dataclasses
@@ -355,6 +356,7 @@ class FinancialEngine:
             haber_carpani=round(haber_carpani, 4),
             kategori=kategori,
             anomaly_metrics=anomaly_metrics,
+            piyasa_degeri=fundamental.get("piyasa_degeri"),
         )
 
     def _rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -971,6 +973,11 @@ class FinancialEngine:
         except Exception:
             borc_favok = None
 
+        piyasa_degeri = (
+            round(float(last_price) * float(odenmis_sermaye), 0)
+            if last_price is not None and odenmis_sermaye is not None
+            else None
+        )
         return {
             "roe":           round(roe,   6) if roe   is not None else None,
             "net_kar_marji": round(nkm,   6) if nkm   is not None else None,
@@ -978,6 +985,7 @@ class FinancialEngine:
             "fk":            round(fk,    4) if fk    is not None else None,
             "ok_buyume":     ok_buyume,
             "borc_favok":    borc_favok,
+            "piyasa_degeri": piyasa_degeri,
             "data_source":   "borsapy",
             "period":        latest,
         }
@@ -1025,6 +1033,7 @@ class FinancialEngine:
             "pd_dd":          None,
             "fk":             None,
             "net_borc_favok": None,
+            "piyasa_degeri":  None,
             "data_source":    "borsapy_banking",
             "period":         bs.columns[0],
         }
