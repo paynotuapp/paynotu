@@ -192,6 +192,7 @@ class SpekResult:
     kategori: str = "TEMIZ"  # 'TEMIZ' | 'GECMIS_PD' | 'YENI_PD' | 'AKTIF_PD'
     anomaly_metrics: Optional[AnomalyActivityMetrics] = None
     piyasa_degeri: Optional[float] = None
+    beta: Optional[float] = None
 
     def copyWith(self, **kwargs) -> "SpekResult":
         import dataclasses
@@ -316,6 +317,17 @@ class FinancialEngine:
         data_start = str(df.index[0].date())  if len(df) > 0 else ""
         data_end   = str(df.index[-1].date()) if len(df) > 0 else ""
 
+        # Beta — yfinance'tan
+        beta = None
+        try:
+            import yfinance as _yf
+            _info = _yf.Ticker(f"{ticker}.IS").info
+            _beta = _info.get("beta")
+            if _beta is not None:
+                beta = round(float(_beta), 4)
+        except Exception:
+            pass
+
         return SpekResult(
             ticker=ticker,
             spek_score=round(final_score, 4),
@@ -357,6 +369,7 @@ class FinancialEngine:
             kategori=kategori,
             anomaly_metrics=anomaly_metrics,
             piyasa_degeri=fundamental.get("piyasa_degeri"),
+            beta=beta,
         )
 
     def _rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -856,6 +869,11 @@ class FinancialEngine:
             except Exception as e:
                 logger.warning(f"[temel] {ticker} borsapy banking: {e}")
         if result is None:
+            try:
+                result = self._yfinance_fallback(ticker)
+            except Exception as e:
+                logger.warning(f"[temel] {ticker} yfinance fallback: {e}")
+        if result is None:
             result = self._sektor_fallback(sektor)
         _FUNDAMENTAL_CACHE[ticker] = result
         return result
@@ -1036,6 +1054,35 @@ class FinancialEngine:
             "piyasa_degeri":  None,
             "data_source":    "borsapy_banking",
             "period":         bs.columns[0],
+        }
+
+    def _yfinance_fallback(self, ticker: str) -> Optional[dict]:
+        """yfinance'tan temel metrikler — borsapy başarısız olunca."""
+        import yfinance as _yf
+        info = _yf.Ticker(f"{ticker}.IS").info
+        if not info or info.get("regularMarketPrice") is None:
+            return None
+
+        fk        = info.get("trailingPE")
+        pd_dd     = info.get("priceToBook")
+        roe       = info.get("returnOnEquity")
+        nkm       = info.get("profitMargins")
+        ok_buyume = info.get("revenueGrowth")
+        mc        = info.get("marketCap")
+
+        if all(v is None for v in [fk, pd_dd, roe, nkm]):
+            return None
+
+        return {
+            "fk":            round(float(fk),       4) if fk        is not None else None,
+            "pd_dd":         round(float(pd_dd),     4) if pd_dd     is not None else None,
+            "roe":           round(float(roe),       6) if roe       is not None else None,
+            "net_kar_marji": round(float(nkm),       6) if nkm       is not None else None,
+            "ok_buyume":     round(float(ok_buyume), 6) if ok_buyume is not None else None,
+            "borc_favok":    None,
+            "piyasa_degeri": round(float(mc), 0)        if mc        is not None else None,
+            "data_source":   "yfinance",
+            "period":        "TTM",
         }
 
     def _sektor_fallback(self, sektor: Optional[str]) -> dict:

@@ -539,12 +539,13 @@ def daily_job(tickers: list[str] | None = None):
                 final = integrator.calculate(cache["f"], cache["e"], q05, q95)
 
                 _am = getattr(cache["f"], "anomaly_metrics", None)
+                _f  = cache["f"]
                 db.collection("hisseler").document(ticker).update({
                     "paynotu_skoru":           final.paynotu_score,
                     "has_paynotu":             final.paynotu_score is not None,
                     "halk_skoru":              final.emotional_score,
-                    "raw_spek_score":          cache["f"].spek_score,
-                    "piyasa_degeri":           cache["f"].piyasa_degeri,
+                    "raw_spek_score":          _f.spek_score,
+                    "piyasa_degeri":           _f.piyasa_degeri,
                     "anomali_skoru":           final.paynotu_score,
                     "emotional_risk":          final.emotional_risk,
                     "emotional_grip":          final.emotional_grip,
@@ -552,9 +553,18 @@ def daily_job(tickers: list[str] | None = None):
                     "is_sentiment_divergence": final.is_sentiment_divergence,
                     "has_reviews":             final.has_reviews,
                     "kap_oda_30g":             cache["kap"],
-                    "motor_detay":             _motor_detay_payload(cache["f"]),
-                    "kategori":                cache["f"].kategori,
+                    "motor_detay":             _motor_detay_payload(_f),
+                    "kategori":                _f.kategori,
                     "financial_score":         fb_firestore.DELETE_FIELD,
+                    # Flat temel alanları
+                    "temel_fk":                _f.temel_fk,
+                    "temel_roe":               _f.temel_roe,
+                    "temel_pd_dd":             _f.temel_pd_dd,
+                    "temel_net_kar_marji":      _f.temel_net_kar_marji,
+                    "temel_borc_favok":        _f.temel_borc_favok,
+                    "temel_ok_buyume":         _f.temel_ok_buyume,
+                    "temel_kaynak":            _f.temel_kaynak,
+                    "beta":                    _f.beta,
                     "anomaly_metrics": {
                         "total_days":             _am.total_days,
                         "hard_count":             _am.hard_count,
