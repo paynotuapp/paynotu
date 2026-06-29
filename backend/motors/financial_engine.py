@@ -886,6 +886,21 @@ class FinancialEngine:
                     result["data_source"] = result.get("data_source", "borsapy") + "+yfinance_fk"
             except Exception:
                 pass
+        # borsapy döndü ama pd_dd null ise yfinance'tan tamamla
+        if result is not None and result.get("pd_dd") is None:
+            try:
+                import yfinance as _yf
+                _info = _yf.Ticker(f"{ticker}.IS").info
+                _pd_dd = _info.get("priceToBook")
+                if _pd_dd is not None:
+                    result["pd_dd"] = round(float(_pd_dd), 4)
+                    src = result.get("data_source", "borsapy")
+                    if "+yfinance_fk" not in src:
+                        result["data_source"] = src + "+yfinance_pddd"
+                    else:
+                        result["data_source"] = src.replace("+yfinance_fk", "+yfinance_fk_pddd")
+            except Exception:
+                pass
         _FUNDAMENTAL_CACHE[ticker] = result
         return result
 
