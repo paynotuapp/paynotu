@@ -875,6 +875,17 @@ class FinancialEngine:
                 logger.warning(f"[temel] {ticker} yfinance fallback: {e}")
         if result is None:
             result = self._sektor_fallback(sektor)
+        # borsapy döndü ama fk null ise yfinance'tan sadece fk'yı tamamla
+        if result is not None and result.get("fk") is None:
+            try:
+                import yfinance as _yf
+                _info = _yf.Ticker(f"{ticker}.IS").info
+                _fk = _info.get("trailingPE")
+                if _fk is not None:
+                    result["fk"] = round(float(_fk), 4)
+                    result["data_source"] = result.get("data_source", "borsapy") + "+yfinance_fk"
+            except Exception:
+                pass
         _FUNDAMENTAL_CACHE[ticker] = result
         return result
 
