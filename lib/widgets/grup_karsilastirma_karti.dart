@@ -553,6 +553,14 @@ class _GrupKarsilastirmaKartiState extends State<GrupKarsilastirmaKarti> {
                       color: cs.onSurfaceVariant.withValues(alpha: 0.60),
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '— işareti, ilgili şirket için bu dönemde veri hesaplanamadığını gösterir (zarar, yetersiz geçmiş veya farklı bilanço modeli).',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.60),
+                    ),
+                  ),
                 ],
               );
             },

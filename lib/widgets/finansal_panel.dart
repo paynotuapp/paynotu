@@ -130,7 +130,7 @@ class FinansalPanel extends StatelessWidget {
 
   String _roeAlt(double? v) {
     if (v == null) return '—';
-    if (v >= 0.20) return 'Çok güçlü';
+    if (v >= 0.20) return 'Çok Güçlü';
     if (v >= 0.12) return 'İyi';
     if (v >= 0.05) return 'Orta';
     return 'Zayıf';
@@ -138,10 +138,10 @@ class FinansalPanel extends StatelessWidget {
 
   String _pdDdAlt(double? v) {
     if (v == null) return '—';
-    if (v < 1.0) return 'Ucuz';
-    if (v < 2.5) return 'Makul';
+    if (v < 1.0) return 'Düşük';
+    if (v < 2.5) return 'Ortalama';
     if (v < 4.0) return 'Yüksek';
-    return 'Çok yüksek';
+    return 'Çok Yüksek';
   }
 
   String _fkAlt(double? v) {
@@ -149,7 +149,7 @@ class FinansalPanel extends StatelessWidget {
     if (v < 10) return 'Düşük';
     if (v < 20) return 'Orta';
     if (v < 35) return 'Yüksek';
-    return 'Çok yüksek';
+    return 'Çok Yüksek';
   }
 
   String _marjAlt(double? v) {
@@ -310,31 +310,85 @@ class FinansalPanel extends StatelessWidget {
           const SizedBox(height: 12),
           _FiyatAraligiKart(hisseData: hisseData),
           const SizedBox(height: 8),
-          _MetrikGrid(
-            metrikler: [
-              _MetrikVeri(etiket: 'F/K', deger: _x(_fk), alt: _fkAlt(_fk)),
-              _MetrikVeri(
-                etiket: 'PD/DD',
-                deger: _sayi(_pdDd),
-                alt: _pdDdAlt(_pdDd),
-              ),
-              _MetrikVeri(
-                etiket: 'Net Kâr Marjı',
-                deger: _pct(_netKarMarji),
-                alt: _marjAlt(_netKarMarji),
-              ),
-              _MetrikVeri(etiket: 'ROE', deger: _pct(_roe), alt: _roeAlt(_roe)),
-              _MetrikVeri(
-                etiket: 'Borç/FAVÖK',
-                deger: _sayi(_borcFavok),
-                alt: _borcAlt(_borcFavok),
-              ),
-              _MetrikVeri(
-                etiket: 'Beta',
-                deger: _sayi(_beta),
-                alt: _betaAlt(_beta),
-              ),
-            ],
+          Builder(
+            builder: (context) {
+              final fkVal = _fk;
+              final netKarMarjiVal = _netKarMarji;
+              final fkInfo = (fkVal == null)
+                  ? ((netKarMarjiVal != null && netKarMarjiVal < 0)
+                        ? 'Şirket bu dönemde zarar bildirdiği için F/K hesaplanamıyor.'
+                        : 'Bu hisse için F/K verisi henüz hesaplanamadı.')
+                  : null;
+
+              final pdDdVal = _pdDd;
+              final pdDdInfo = pdDdVal == null
+                  ? 'Bu hisse için defter değeri verisi henüz hesaplanamadı.'
+                  : null;
+
+              final nkmVal = _netKarMarji;
+              final nkmInfo = nkmVal == null
+                  ? 'Gelir tablosu verisi bu dönem için eksik.'
+                  : null;
+
+              final roeVal = _roe;
+              final roeInfo = roeVal == null
+                  ? 'Özkaynak verisi eksik olduğu için ROE hesaplanamadı.'
+                  : null;
+
+              final borcVal = _borcFavok;
+              final sektorGrubu = hisseData['paynotu_sector_group'] as String? ?? '';
+              final borcInfo = borcVal == null
+                  ? ((sektorGrubu == 'bank' || sektorGrubu == 'insurance')
+                        ? 'Bu oran banka ve finans şirketleri için farklı bir bilanço yapısı nedeniyle hesaplanmaz.'
+                        : 'Borç verisi henüz hesaplanamadı.')
+                  : null;
+
+              final betaVal = _beta;
+              final betaInfo = betaVal == null
+                  ? 'Beta hesaplamak için yeterli işlem geçmişi bulunmuyor (yeni halka arz veya düşük likidite).'
+                  : null;
+
+              return _MetrikGrid(
+                metrikler: [
+                  _MetrikVeri(
+                    etiket: 'F/K',
+                    deger: _x(fkVal),
+                    alt: _fkAlt(fkVal),
+                    infoMesaj: fkInfo,
+                  ),
+                  _MetrikVeri(
+                    etiket: 'PD/DD',
+                    deger: _sayi(pdDdVal),
+                    alt: _pdDdAlt(pdDdVal),
+                    infoMesaj: pdDdInfo,
+                  ),
+                  _MetrikVeri(
+                    etiket: 'Net Kâr Marjı',
+                    deger: _pct(nkmVal),
+                    alt: _marjAlt(nkmVal),
+                    infoMesaj: nkmInfo,
+                  ),
+                  _MetrikVeri(
+                    etiket: 'ROE',
+                    deger: _pct(roeVal),
+                    alt: _roeAlt(roeVal),
+                    infoMesaj: roeInfo,
+                  ),
+                  _MetrikVeri(
+                    etiket: 'Borç/FAVÖK',
+                    deger: _sayi(borcVal),
+                    alt: _borcAlt(borcVal),
+                    infoMesaj: borcInfo,
+                  ),
+                  _MetrikVeri(
+                    etiket: 'Beta',
+                    deger: _sayi(betaVal),
+                    alt: _betaAlt(betaVal),
+                    infoMesaj: betaInfo,
+                  ),
+                ],
+              );
+            },
           ),
           if (_rsi14 != null) ...[
             const SizedBox(height: 8),
@@ -706,11 +760,13 @@ class _MetrikVeri {
   final String etiket;
   final String deger;
   final String alt;
+  final String? infoMesaj;
 
   const _MetrikVeri({
     required this.etiket,
     required this.deger,
     required this.alt,
+    this.infoMesaj,
   });
 }
 
@@ -738,6 +794,23 @@ class _MetrikKart extends StatelessWidget {
 
   const _MetrikKart({required this.veri});
 
+  void _showMetricInfo(BuildContext context, String mesaj) {
+    final cs = Theme.of(context).colorScheme;
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      builder: (_) => AlertDialog(
+        backgroundColor: cs.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.all(14),
+        content: Text(
+          mesaj,
+          style: TextStyle(fontSize: 13, color: cs.onSurface, height: 1.5),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -752,11 +825,43 @@ class _MetrikKart extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            veri.etiket,
-            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                veri.etiket,
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (veri.infoMesaj != null)
+                GestureDetector(
+                  onTap: () => _showMetricInfo(context, veri.infoMesaj!),
+                  child: Container(
+                    width: 15,
+                    height: 15,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: cs.tertiary.withValues(alpha: 0.15),
+                      border: Border.all(
+                        color: cs.tertiary.withValues(alpha: 0.55),
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'i',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontStyle: FontStyle.italic,
+                          fontWeight: FontWeight.w700,
+                          color: cs.tertiary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 1),
           Text(
