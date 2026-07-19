@@ -963,14 +963,32 @@ def _contains_forbidden(text: str, words: List[str] = _FORBIDDEN_WORDS) -> bool:
     return False
 
 
-def _yf_get(df: Optional[pd.DataFrame], keys: List[str]) -> Optional[float]:
-    """yfinance DataFrame'den ilk eşleşen satırın en güncel (col 0) değeri."""
+def _yf_get(
+    df: Optional[pd.DataFrame],
+    keys: List[str],
+    col: int = 0,
+    flags: Optional[List[str]] = None,
+) -> Optional[float]:
+    """
+    yfinance DataFrame'den eşleşen satırın col.'inci (varsayılan en güncel) dönem değeri.
+    Aynı index etiketi birden fazla satırda tekrar ederse (nadir veri kalitesi sorunu,
+    .loc[] tek Series yerine DataFrame döner) ilk eşleşen satır alınır — Series üzerinde
+    belirsiz bool hatasını (`pd.notna` çok elemanlı Series'te patlar) önler.
+    """
     if df is None or df.empty:
         return None
     for key in keys:
-        if key in df.index:
-            v = df.loc[key].iloc[0]
-            return float(v) if pd.notna(v) else None
+        if key not in df.index:
+            continue
+        row = df.loc[key]
+        if isinstance(row, pd.DataFrame):
+            if flags is not None:
+                flags.append(f"yfinance verisinde '{key}' satırı tekrarlandı, ilk eşleşen kullanıldı.")
+            row = row.iloc[0]
+        if col >= len(row):
+            continue
+        v = row.iloc[col]
+        return float(v) if pd.notna(v) else None
     return None
 
 
@@ -5037,21 +5055,11 @@ class FundamentalEngine:
                 n_bs = bs.shape[1]
                 n_is = df.shape[1]
 
-                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
-                            col: int) -> Optional[float]:
-                    if frame is None:
-                        return None
-                    for k in keys:
-                        if k in frame.index and col < frame.shape[1]:
-                            v = frame.loc[k].iloc[col]
-                            return float(v) if pd.notna(v) else None
-                    return None
-
-                eq_c = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 0)
-                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 0)
+                eq_p = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
                 if (eq_c is None or eq_p is None) and bs_y is not None:
-                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
-                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                    eq_c = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
                 r = yoy(eq_c, eq_p)
                 if r is not None:
                     eq_yoys.append(r)
@@ -5059,8 +5067,8 @@ class FundamentalEngine:
                 ni_c = _yf_ttm(df, YF_NET_INCOME_KEYS, start=0)
                 ni_p = _yf_ttm(df, YF_NET_INCOME_KEYS, start=4) if n_is >= 8 else None
                 if (ni_c is None or ni_p is None) and is_y is not None:
-                    ni_c = _yf_at(is_y, YF_NET_INCOME_KEYS, 0)
-                    ni_p = _yf_at(is_y, YF_NET_INCOME_KEYS, 1)
+                    ni_c = _yf_get(is_y, YF_NET_INCOME_KEYS, 0)
+                    ni_p = _yf_get(is_y, YF_NET_INCOME_KEYS, 1)
                 r = yoy(ni_c, ni_p)
                 if r is not None:
                     ni_yoys.append(r)
@@ -5650,21 +5658,11 @@ class FundamentalEngine:
                 n_bs = bs.shape[1]
                 n_is = df.shape[1]
 
-                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
-                            col: int) -> Optional[float]:
-                    if frame is None:
-                        return None
-                    for k in keys:
-                        if k in frame.index and col < frame.shape[1]:
-                            v = frame.loc[k].iloc[col]
-                            return float(v) if pd.notna(v) else None
-                    return None
-
-                eq_c = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 0)
-                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 0)
+                eq_p = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
                 if (eq_c is None or eq_p is None) and bs_y is not None:
-                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
-                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                    eq_c = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
                 r = yoy(eq_c, eq_p)
                 if r is not None:
                     eq_yoys.append(r)
@@ -5672,8 +5670,8 @@ class FundamentalEngine:
                 ni_c = _yf_ttm(df, YF_NET_INCOME_KEYS, start=0)
                 ni_p = _yf_ttm(df, YF_NET_INCOME_KEYS, start=4) if n_is >= 8 else None
                 if (ni_c is None or ni_p is None) and is_y is not None:
-                    ni_c = _yf_at(is_y, YF_NET_INCOME_KEYS, 0)
-                    ni_p = _yf_at(is_y, YF_NET_INCOME_KEYS, 1)
+                    ni_c = _yf_get(is_y, YF_NET_INCOME_KEYS, 0)
+                    ni_p = _yf_get(is_y, YF_NET_INCOME_KEYS, 1)
                 r = yoy(ni_c, ni_p)
                 if r is not None:
                     ni_yoys.append(r)
@@ -6338,37 +6336,27 @@ class FundamentalEngine:
                 n_is = df.shape[1]
                 n_bs = bs.shape[1]
 
-                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
-                            col: int) -> Optional[float]:
-                    if frame is None:
-                        return None
-                    for k in keys:
-                        if k in frame.index and col < frame.shape[1]:
-                            v = frame.loc[k].iloc[col]
-                            return float(v) if pd.notna(v) else None
-                    return None
-
                 oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
                 oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
                 if (oi_c is None or oi_p is None) and is_y is not None:
-                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
-                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                    oi_c = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 1)
                 r = yoy(oi_c, oi_p)
                 if r is not None: oi_yoys.append(r)
 
                 rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
                 rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
                 if (rev_c is None or rev_p is None) and is_y is not None:
-                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
-                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                    rev_c = _yf_get(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_get(is_y, YF_REVENUE_KEYS, 1)
                 r = yoy(rev_c, rev_p)
                 if r is not None: rev_yoys.append(r)
 
                 eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
-                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                eq_p = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
                 if (eq_c is None or eq_p is None) and bs_y is not None:
-                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
-                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                    eq_c = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
                 r = yoy(eq_c, eq_p)
                 if r is not None: eq_yoys.append(r)
 
@@ -7079,37 +7067,27 @@ class FundamentalEngine:
                 n_is = df.shape[1]
                 n_bs = bs.shape[1]
 
-                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
-                            col: int) -> Optional[float]:
-                    if frame is None:
-                        return None
-                    for k in keys:
-                        if k in frame.index and col < frame.shape[1]:
-                            v = frame.loc[k].iloc[col]
-                            return float(v) if pd.notna(v) else None
-                    return None
-
                 oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
                 oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
                 if (oi_c is None or oi_p is None) and is_y is not None:
-                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
-                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                    oi_c = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 1)
                 r = yoy(oi_c, oi_p)
                 if r is not None: oi_yoys.append(r)
 
                 rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
                 rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
                 if (rev_c is None or rev_p is None) and is_y is not None:
-                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
-                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                    rev_c = _yf_get(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_get(is_y, YF_REVENUE_KEYS, 1)
                 r = yoy(rev_c, rev_p)
                 if r is not None: rev_yoys.append(r)
 
                 eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
-                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                eq_p = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
                 if (eq_c is None or eq_p is None) and bs_y is not None:
-                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
-                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                    eq_c = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
                 r = yoy(eq_c, eq_p)
                 if r is not None: eq_yoys.append(r)
 
@@ -7879,37 +7857,27 @@ class FundamentalEngine:
                 n_is = df.shape[1]
                 n_bs = bs.shape[1]
 
-                def _yf_at(frame: Optional[pd.DataFrame], keys: List[str],
-                            col: int) -> Optional[float]:
-                    if frame is None:
-                        return None
-                    for k in keys:
-                        if k in frame.index and col < frame.shape[1]:
-                            v = frame.loc[k].iloc[col]
-                            return float(v) if pd.notna(v) else None
-                    return None
-
                 oi_c = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=0)
                 oi_p = _yf_ttm(df, YF_OPERATING_INCOME_KEYS, start=4) if n_is >= 8 else None
                 if (oi_c is None or oi_p is None) and is_y is not None:
-                    oi_c = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 0)
-                    oi_p = _yf_at(is_y, YF_OPERATING_INCOME_KEYS, 1)
+                    oi_c = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 0)
+                    oi_p = _yf_get(is_y, YF_OPERATING_INCOME_KEYS, 1)
                 r = yoy(oi_c, oi_p)
                 if r is not None: oi_yoys.append(r)
 
                 rev_c = _yf_ttm(df, YF_REVENUE_KEYS, start=0)
                 rev_p = _yf_ttm(df, YF_REVENUE_KEYS, start=4) if n_is >= 8 else None
                 if (rev_c is None or rev_p is None) and is_y is not None:
-                    rev_c = _yf_at(is_y, YF_REVENUE_KEYS, 0)
-                    rev_p = _yf_at(is_y, YF_REVENUE_KEYS, 1)
+                    rev_c = _yf_get(is_y, YF_REVENUE_KEYS, 0)
+                    rev_p = _yf_get(is_y, YF_REVENUE_KEYS, 1)
                 r = yoy(rev_c, rev_p)
                 if r is not None: rev_yoys.append(r)
 
                 eq_c = _yf_get(bs, YF_TOTAL_EQUITY_KEYS)
-                eq_p = _yf_at(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
+                eq_p = _yf_get(bs, YF_TOTAL_EQUITY_KEYS, 4) if n_bs >= 5 else None
                 if (eq_c is None or eq_p is None) and bs_y is not None:
-                    eq_c = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
-                    eq_p = _yf_at(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
+                    eq_c = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 0)
+                    eq_p = _yf_get(bs_y, YF_TOTAL_EQUITY_KEYS, 1)
                 r = yoy(eq_c, eq_p)
                 if r is not None: eq_yoys.append(r)
 
