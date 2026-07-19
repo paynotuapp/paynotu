@@ -1506,11 +1506,12 @@ class _GetiriKarsilastirmasiKartState
     final sym = widget.symbol;
     if (sym.isEmpty) {
       _loadingTimer?.cancel();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _error = false;
         });
+      }
       return;
     }
     if (mounted) {
@@ -1546,11 +1547,12 @@ class _GetiriKarsilastirmasiKartState
       debugPrint('COMPARE fetch error: $sym $e');
     }
     _loadingTimer?.cancel();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _loading = false;
         _error = true;
       });
+    }
   }
 
   void _infoGoster(BuildContext context) {
