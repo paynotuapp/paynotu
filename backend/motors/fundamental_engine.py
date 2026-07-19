@@ -1913,7 +1913,7 @@ class FundamentalEngine:
         cf  = data.get("cf")
 
         if cf is None:
-            return None, "missing"
+            return None, "missing", 0.0
 
         revenue    = _yf_ttm(is_, YF_REVENUE_KEYS)
         net_income = _yf_ttm(is_, YF_NET_INCOME_KEYS)
