@@ -1549,7 +1549,7 @@ class FundamentalEngine:
 
     def _profitability_yfinance(
         self, data: dict, sector_group: str, flags: List[str]
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         is_ = data["is_"]
         bs  = data["bs"]
 
@@ -1596,7 +1596,7 @@ class FundamentalEngine:
 
     def _profitability_standard(
         self, data: dict
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         bs, is_ = data["bs"], data["is_"]
 
         net_kar  = _get_row(is_, _NET_PROFIT_KEYS)
@@ -1631,7 +1631,7 @@ class FundamentalEngine:
 
     def _profitability_bank(
         self, data: dict
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         bs, is_ = data["bs"], data["is_"]
 
         net_kar  = _get_row(is_, _BANK_NET_PROFIT_KEYS)
@@ -1748,7 +1748,7 @@ class FundamentalEngine:
 
     def _balance_sheet_yfinance(
         self, data: dict, flags: List[str]
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         is_ = data["is_"]
         bs  = data["bs"]
         cf  = data.get("cf")
@@ -1908,7 +1908,7 @@ class FundamentalEngine:
 
     def _cash_flow_yfinance(
         self, data: dict, flags: List[str]
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[Optional[float], Optional[str], float]:
         is_ = data["is_"]
         cf  = data.get("cf")
 
