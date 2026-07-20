@@ -191,77 +191,18 @@ def run_calibration() -> dict:
     return cfg
 
 
-# ── TOPSIS RANK GÜNCELLEME ────────────────────────────────────────────────────
-
-def _guncelle_topsis_rank(db) -> None:
-    """
-    Tüm hisselerin spek_score'larını okuyup büyükten küçüğe sıralar
-    ve topsis_rank alanını Firestore'a yazar.
-    """
-    logger.info("[rank] Spek sıralama başladı")
-    docs = list(db.collection("hisseler").where("kap_aktif", "==", True).stream())
-
-    skorlar = []
-    for doc in docs:
-        d = doc.to_dict() or {}
-        finansal = d.get("raw_spek_score") or d.get("spek_score")
-        if finansal is not None:
-            skorlar.append((doc.id, float(finansal)))
-
-    if not skorlar:
-        logger.warning("[rank] Hiç skor bulunamadı")
-        return
-
-    skorlar.sort(key=lambda x: x[1], reverse=True)
-    toplam = len(skorlar)
-
-    BATCH_SIZE = 400
-    batch = db.batch()
-    batch_cnt = 0
-
-    for rank, (ticker, _) in enumerate(skorlar, 1):
-        ref = db.collection("hisseler").document(ticker)
-        batch.update(ref, {
-            "topsis_rank":   rank,
-            "topsis_toplam": toplam,
-        })
-        batch_cnt += 1
-        if batch_cnt >= BATCH_SIZE:
-            batch.commit()
-            batch = db.batch()
-            batch_cnt = 0
-
-    if batch_cnt > 0:
-        batch.commit()
-
-    logger.info(f"[rank] {toplam} hisse sıralandı")
-
-
 # ── YARDIMCI: Motor detay payload ─────────────────────────────────────────────
 
 def _motor_detay_payload(f_result) -> dict:
     """
     SpekResult nesnesinden Firestore'a yazılacak motor_detay dict'ini üretir.
-    Yeni motor v2.2 alanlarını kullanır.
+    spek_score (TOPSIS+entropi+fundamental_multiplier+haber_carpani) emekli
+    edildi (bkz. backend/docs/paynotu_spekscore_emeklilik_is_emri.md) — AAS
+    ortak omurgası ve fundamental veri alanları kalır.
     """
     _am = getattr(f_result, "anomaly_metrics", None)
     return {
-        # ── Spek skorları ───────────────────────────────────────────────────
-        "spek_score":             f_result.spek_score,
-        "topsis_raw":             f_result.topsis_raw,
         "guven_skoru":            f_result.guven_skoru,
-
-        # ── 4 kriter skoru ──────────────────────────────────────────────────
-        "fiyat_anomali_skoru":    f_result.fiyat_anomali_skoru,
-        "hacim_patlamasi_skoru":  f_result.hacim_patlamasi_skoru,
-        "volatilite_skoru":       f_result.volatilite_skoru,
-        "pump_benzerlik_skoru":   f_result.pump_benzerlik_skoru,
-
-        # ── Açıklamalar (insan okuyabilir) ──────────────────────────────────
-        "fiyat_anomali_aciklama":   f_result.fiyat_anomali_aciklama,
-        "hacim_patlamasi_aciklama": f_result.hacim_patlamasi_aciklama,
-        "volatilite_aciklama":      f_result.volatilite_aciklama,
-        "pump_benzerlik_aciklama":  f_result.pump_benzerlik_aciklama,
 
         # ── Üç seviyeli spek günler ─────────────────────────────────────────
         "spek_gun_soft":          f_result.spek_gun_soft,
@@ -270,16 +211,6 @@ def _motor_detay_payload(f_result) -> dict:
         "spek_orani":             f_result.spek_orani,
         "max_streak":             f_result.max_streak,
         "son_30g_spek_yuzdesi":   f_result.son_30g_spek_yuzdesi,
-
-        # ── Hacim ──────────────────────────────────────────────────────────
-        "hacim_spike_kati":       f_result.hacim_spike_kati,
-
-        # ── Filtre (Temelden Kopuş) ─────────────────────────────────────────
-        "fundamental_multiplier": f_result.fundamental_multiplier,
-        "fundamental_aciklama":   f_result.fundamental_aciklama,
-
-        # ── Entropi ─────────────────────────────────────────────────────────
-        "entropi_agirliklari":    f_result.entropi_agirliklari,
 
         # ── Veri kalitesi ───────────────────────────────────────────────────
         "veri_gun_sayisi":        f_result.veri_gun_sayisi,
@@ -290,7 +221,6 @@ def _motor_detay_payload(f_result) -> dict:
 
         # ── KAP haber ───────────────────────────────────────────────────────
         "kap_haber_sayisi":   f_result.kap_haber_sayisi,
-        "haber_carpani":      f_result.haber_carpani,
         "kategori":           f_result.kategori,
 
         # ── Temel analiz (filtre verisi) ────────────────────────────────────
@@ -367,11 +297,9 @@ def daily_job(tickers: list[str] | None = None):
     """
     Her gün 03:00 UTC çalışır.
     1. PASS 1 — Tüm hisseler için finansal/duygusal sonuçları ticker_cache'e alır.
-    2. q05/q95 — Geçerli spek_score dağılımından robust eşikler hesaplanır,
-       system_config/motor_thresholds dökümanına yazılır.
-    3. PASS 2 (Prompt 3) — Cache + q05/q95 kullanılarak integrator çalışır,
-       Firestore hisse yazımı yapılır. (Henüz eklenmedi.)
-    4. Ayın 1'iyse ek olarak SPK kalibrasyon çalıştırır.
+    2. PASS 2 — Cache kullanılarak integrator (AAS tabanlı paynotu_score) çalışır,
+       Firestore hisse yazımı yapılır.
+    3. Ayın 1'iyse ek olarak SPK kalibrasyon çalıştırır.
     """
     now_utc = datetime.now(timezone.utc)
     logger.info(f"[scheduler] Günlük iş başladı — {now_utc.strftime('%Y-%m-%d %H:%M UTC')}")
@@ -430,7 +358,7 @@ def daily_job(tickers: list[str] | None = None):
                     "e":     e_result,
                     "df":    df,
                     "kap":   kap_haber,
-                    "valid": f_result.spek_score is not None,
+                    "valid": True,
                     "error": None,
                 }
                 ok += 1
@@ -450,39 +378,6 @@ def daily_job(tickers: list[str] | None = None):
             f"cache_success_count={cache_success_count} "
             f"ok={ok} fail={fail}"
         )
-
-        # ── q05/q95 robust kalibrasyon eşikleri ─────────────────────────────
-        valid_scores = [
-            cache["f"].spek_score
-            for cache in ticker_cache.values()
-            if cache.get("valid") is True
-        ]
-        valid_score_count = len(valid_scores)
-
-        q05 = q95 = None
-        if valid_score_count >= 100:
-            q05 = float(np.percentile(valid_scores, 5))
-            q95 = float(np.percentile(valid_scores, 95))
-
-        if valid_score_count >= 100 and q05 is not None and q95 is not None and q95 > q05:
-            db.collection("system_config").document("motor_thresholds").set({
-                "spek_q05":               round(float(q05), 4),
-                "spek_q95":               round(float(q95), 4),
-                "spek_distribution_date": date.today().strftime("%Y-%m-%d"),
-                "spek_universe_count":    valid_score_count,
-                "spek_percentile_method": "q05_q95",
-                "updated_at":             fb_firestore.SERVER_TIMESTAMP,
-            }, merge=True)
-            logger.info(
-                f"[scheduler] Robust calibration — "
-                f"valid_score_count={valid_score_count} "
-                f"q05={q05:.4f} q95={q95:.4f}"
-            )
-        else:
-            logger.warning(
-                f"[scheduler] Robust calibration skipped: insufficient valid scores "
-                f"(valid_score_count={valid_score_count})"
-            )
 
         # ── PASS 2: integrator + Firestore hisse yazımı ─────────────────────
         pass2_total_count       = len(ticker_cache)
@@ -536,7 +431,7 @@ def daily_job(tickers: list[str] | None = None):
                         logger.warning(f"[{ticker}] fund_engine hatası (ohlcv_fail): {fund_err}")
                     continue
 
-                final = integrator.calculate(cache["f"], cache["e"], q05, q95)
+                final = integrator.calculate(cache["f"], cache["e"])
 
                 _am = getattr(cache["f"], "anomaly_metrics", None)
                 _f  = cache["f"]
@@ -544,13 +439,9 @@ def daily_job(tickers: list[str] | None = None):
                     "paynotu_skoru":           final.paynotu_score,
                     "has_paynotu":             final.paynotu_score is not None,
                     "halk_skoru":              final.emotional_score,
-                    "raw_spek_score":          _f.spek_score,
                     "piyasa_degeri":           _f.piyasa_degeri,
                     "anomali_skoru":           final.paynotu_score,
                     "emotional_risk":          final.emotional_risk,
-                    "emotional_grip":          final.emotional_grip,
-                    "grip_intensity":          final.grip_intensity,
-                    "is_sentiment_divergence": final.is_sentiment_divergence,
                     "has_reviews":             final.has_reviews,
                     "kap_oda_30g":             cache["kap"],
                     "motor_detay":             _motor_detay_payload(_f),
@@ -678,11 +569,6 @@ def daily_job(tickers: list[str] | None = None):
         )
 
         logger.info(f"[scheduler] Skor tamamlandı — {ok} OK, {fail} hata")
-
-        try:
-            _guncelle_topsis_rank(db)
-        except Exception as e:
-            logger.error(f"[scheduler] Spek rank hatası: {e}")
 
         if now_utc.day == 1:
             logger.info("[scheduler] Ayın 1'i — SPK kalibrasyon başlıyor")
@@ -2996,28 +2882,18 @@ def get_score(ticker: str):
     return {
         "ticker":          ticker,
 
-        "spek_score":      f_result.spek_score,
         "paynotu_score":   final.paynotu_score,
         "emotional_score": final.emotional_score,
         "guven_skoru":     f_result.guven_skoru,
 
-        "emotional_grip":  final.emotional_grip,
-        "grip_intensity":  final.grip_intensity,
-        "is_sentiment_divergence":  final.is_sentiment_divergence,
+        "emotional_risk":  final.emotional_risk,
         "has_reviews":     final.has_reviews,
 
         "details": {
-            "topsis_raw":             f_result.topsis_raw,
-            "entropi_agirliklari":    f_result.entropi_agirliklari,
-            "fiyat_anomali_skoru":    f_result.fiyat_anomali_skoru,
-            "hacim_patlamasi_skoru":  f_result.hacim_patlamasi_skoru,
-            "volatilite_skoru":       f_result.volatilite_skoru,
-            "pump_benzerlik_skoru":   f_result.pump_benzerlik_skoru,
             "spek_gun_soft":          f_result.spek_gun_soft,
             "spek_gun_hard":          f_result.spek_gun_hard,
             "spek_gun_extreme":       f_result.spek_gun_extreme,
             "max_streak":             f_result.max_streak,
-            "fundamental_multiplier": f_result.fundamental_multiplier,
             "veri_gun_sayisi":        f_result.veri_gun_sayisi,
             "endeksler":              endeksler,
             "ipo_listede":            f_result.ipo_listede,
@@ -3025,8 +2901,6 @@ def get_score(ticker: str):
 
             # Eski alan adları (geri uyumluluk)
             "speculative_days": f_result.spek_gun_hard,
-            "topsis":           f_result.topsis_raw,
-            "pump_similarity":  f_result.pump_benzerlik_skoru,
             "data_points":      f_result.veri_gun_sayisi,
             "review_count":     e_result.review_count,
             "effective_review_count": e_result.effective_review_count,
@@ -3045,69 +2919,6 @@ def get_score(ticker: str):
     }
 
 
-@app.get("/score/{ticker}/financial-only")
-def get_financial_score(ticker: str):
-    """Sadece finansal skor — motor testleri için."""
-    ticker = ticker.upper().strip()
-    _ed = date.today().strftime("%Y-%m-%d")
-    _sd = (date.today() - timedelta(days=1825)).strftime("%Y-%m-%d")
-    df = bp.Ticker(ticker).history(start=_sd, end=_ed)
-    if df.empty:
-        return {"error": "Veri bulunamadı"}
-    endeksler: list = []
-    sektor: str = ""
-    try:
-        db = _firebase_db()
-        hisse_doc = db.collection("hisseler").document(ticker).get()
-        if hisse_doc.exists:
-            hd = hisse_doc.to_dict() or {}
-            endeksler = hd.get("endeksler", []) or []
-            sektor    = hd.get("industry") or hd.get("sektor") or ""
-    except Exception:
-        pass
-
-    result = financial_engine.calculate(
-        ticker, df,
-        endeksler=endeksler,
-        sektor=sektor,
-    )
-
-    return {
-        # Yeni
-        "ticker":          result.ticker,
-        "spek_score":      result.spek_score,
-        "guven_skoru":     result.guven_skoru,
-        "topsis_raw":      result.topsis_raw,
-        "spek_gun_hard":   result.spek_gun_hard,
-        "spek_gun_extreme": result.spek_gun_extreme,
-        "max_streak":      result.max_streak,
-        # Eski (geri uyumluluk)
-        "financial_score": result.spek_score,
-        "speculative_days": result.spek_gun_hard,
-        "topsis_score":    result.topsis_raw,
-        # Detay
-        "fiyat_anomali_skoru":   result.fiyat_anomali_skoru,
-        "hacim_patlamasi_skoru": result.hacim_patlamasi_skoru,
-        "volatilite_skoru":      result.volatilite_skoru,
-        "pump_benzerlik_skoru":  result.pump_benzerlik_skoru,
-        "fundamental_multiplier": result.fundamental_multiplier,
-        "fundamental_aciklama":  result.fundamental_aciklama,
-        "ipo_listede":           result.ipo_listede,
-        "veri_gun_sayisi":       result.veri_gun_sayisi,
-        "entropi_agirliklari":   result.entropi_agirliklari,
-        "temel": {
-            "roe":           result.temel_roe,
-            "pd_dd":         result.temel_pd_dd,
-            "fk":            result.temel_fk,
-            "net_kar_marji": result.temel_net_kar_marji,
-            "ok_buyume":     result.temel_ok_buyume,
-            "borc_favok":    result.temel_borc_favok,
-            "kaynak":        result.temel_kaynak,
-            "period":        result.temel_period,
-        },
-    }
-
-
 @app.post("/icerik-kontrol")
 def icerik_kontrol(body: dict):
     try:
@@ -3120,71 +2931,6 @@ def icerik_kontrol(body: dict):
         return r.json()
     except _requests.RequestException:
         return {'durum': 'temiz', 'aciklama': 'Servis erişilemedi', 'risk_puani': 0}
-
-
-@app.post("/yorumu-skorla")
-def yorumu_skorla(body: dict):
-    hisse_kodu = (body.get('hisse_kodu') or '').upper().strip()
-    if not hisse_kodu:
-        raise HTTPException(status_code=400, detail='hisse_kodu zorunlu')
-
-    try:
-        r = _requests.post(
-            f'{DUYGUSAL_AKIL_URL}/yorumu-skorla',
-            json={
-                'yorum_metni':         body.get('yorum_metni', ''),
-                'puan':                float(body.get('puan', 3)),
-                'kullanici_id':        body.get('kullanici_id', ''),
-                'hesap_yas_gun':       int(body.get('hesap_yas_gun', 0)),
-                'toplam_yorum_sayisi': int(body.get('toplam_yorum_sayisi', 0)),
-                'yorum_cesitliligi':   float(body.get('yorum_cesitliligi', 0)),
-                'yorum_timestamp':     int(body.get('yorum_timestamp', int(time.time()))),
-                'faydali_oy':          int(body.get('faydali_oy', 0)),
-                'faydali_olmayan_oy':  int(body.get('faydali_olmayan_oy', 0)),
-                'hisse_kodu':          hisse_kodu,
-            },
-            timeout=30,
-        )
-        if r.status_code == 400:
-            hata = r.json()
-            raise HTTPException(status_code=400, detail=hata.get('detail', 'İçerik engellendi'))
-        r.raise_for_status()
-        sonuc = r.json()
-    except _requests.RequestException as e:
-        logger.error(f'[yorumu-skorla] Duygusal akıl servisi hatası: {e}')
-        raise HTTPException(status_code=503, detail='Sentiment servisi şu an erişilemiyor')
-
-    duygusal = float(sonuc.get('itibar_skoru', 5.0))
-    try:
-        db = _firebase_db()
-        hisse_doc = db.collection('hisseler').document(hisse_kodu).get()
-        spek_score = 5.0
-        if hisse_doc.exists:
-            spek_score = float((hisse_doc.to_dict() or {}).get('finansal_taban', 5.0) or 5.0)
-
-        spek_score  = max(0.0, min(10.0, spek_score))
-        # Finansal veri yoksa PayNotu üretilmez
-        if spek_score == 0.0:
-            db.collection('hisseler').document(hisse_kodu).update({
-                'duygusal_taban': round(duygusal, 4),
-                'paynotu_skoru': None,
-            })
-            return sonuc
-        duygusal    = max(0.0, min(10.0, duygusal))
-        r_h         = 10.0 - duygusal
-        divergence  = spek_score > 7.0 and r_h < 3.0
-        f_w         = 0.90 if divergence else 0.65
-        e_w         = 0.10 if divergence else 0.35
-        paynotu     = round(max(0.0, min(10.0, f_w * spek_score + e_w * r_h)), 4)
-
-        db.collection('hisseler').document(hisse_kodu).update({
-            'duygusal_taban': round(duygusal, 4),
-            'paynotu_skoru':  round(paynotu, 4),
-        })
-    except Exception as e:
-        logger.warning(f'[yorumu-skorla/{hisse_kodu}] Firestore: {e}')
-
-    return sonuc
 
 
 @app.post("/admin/calibrate")
@@ -3265,19 +3011,6 @@ def admin_run_fintables_sync(x_admin_key: str = Header(default="")):
     try:
         fintables_sync_job()
         return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/admin/update-ranks")
-def update_ranks(x_admin_key: str = Header(default="")):
-    """Tüm hisselerin spek sıralamasını güncelle."""
-    if _ADMIN_KEY and x_admin_key != _ADMIN_KEY:
-        raise HTTPException(status_code=403, detail="Yetkisiz")
-    try:
-        db = _firebase_db()
-        _guncelle_topsis_rank(db)
-        return {"status": "ok", "mesaj": "Spek sıralama güncellendi"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -58,7 +58,7 @@ import json
 import logging
 import os
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, cast
 
 import numpy as np
@@ -153,27 +153,13 @@ class AnomalyActivityMetrics:
 @dataclass(frozen=True)
 class SpekResult:
     ticker: str
-    spek_score: float
-    topsis_raw: float
     guven_skoru: float
-    fiyat_anomali_skoru: float
-    hacim_patlamasi_skoru: float
-    volatilite_skoru: float
-    pump_benzerlik_skoru: float
-    fiyat_anomali_aciklama: str
-    hacim_patlamasi_aciklama: str
-    volatilite_aciklama: str
-    pump_benzerlik_aciklama: str
-    fundamental_multiplier: float
-    fundamental_aciklama: str
     spek_gun_soft: int
     spek_gun_hard: int
     spek_gun_extreme: int
     spek_orani: float
     max_streak: int
     son_30g_spek_yuzdesi: float
-    hacim_spike_kati: float
-    entropi_agirliklari: dict = field(default_factory=dict)
     veri_gun_sayisi: int = 0
     ipo_listede: bool = False
     corporate_action_maskelendi: int = 0
@@ -188,7 +174,6 @@ class SpekResult:
     temel_kaynak: str = "fallback"
     temel_period: Optional[str] = None
     kap_haber_sayisi: int = 0
-    haber_carpani: float = 1.0
     kategori: str = "TEMIZ"  # 'TEMIZ' | 'GECMIS_PD' | 'YENI_PD' | 'AKTIF_PD'
     anomaly_metrics: Optional[AnomalyActivityMetrics] = None
     piyasa_degeri: Optional[float] = None
@@ -288,29 +273,7 @@ class FinancialEngine:
         else:
             kategori = "TEMIZ"
 
-        fiyat_skoru,      fiyat_aciklama      = self._fiyat_anomali_skoru(df, spek_hard, spek_extreme)
-        hacim_skoru,      hacim_aciklama      = self._hacim_patlamasi_skoru(df, spek_hard)
-        volatilite_skoru, volatilite_aciklama = self._volatilite_skoru(df, spek_hard)
-        pump_skoru,       pump_aciklama       = self._pump_benzerlik_skoru(df)
-        hacim_spike_kati                      = self._hacim_spike_kati(df)
-
-        agirliklar, entropi_dict = self._entropi_agirliklari(df)
-        kriter_vektoru  = np.array([fiyat_skoru, hacim_skoru, volatilite_skoru, pump_skoru])
-        topsis_raw      = self._topsis(kriter_vektoru, agirliklar)
-        topsis_score_10 = topsis_raw * 10.0
-
         fundamental = self._fundamental_cek(ticker, sektor)
-        multiplier, fund_aciklama = self._fundamental_multiplier(fundamental, sektor)
-
-        # Haber bombardımanı çarpanı — bağımsız sinyal, multiplicative
-        # 20+ ODA bildirimi olan hisseye %30 prim
-        haber_carpani = 1.0 + min(kap_haber_sayisi / 20.0, 1.0) * 0.3
-
-        # Final skor — tek clip, bilgi kaybı yok
-        final_score = float(np.clip(
-            topsis_score_10 * multiplier * guven_skoru * haber_carpani,
-            0.0, 10.0
-        ))
 
         anomaly_metrics = self._anomaly_activity_metrics(spek_hard, spek_extreme, len(df))
 
@@ -330,27 +293,13 @@ class FinancialEngine:
 
         return SpekResult(
             ticker=ticker,
-            spek_score=round(final_score, 4),
-            topsis_raw=round(topsis_raw, 4),
             guven_skoru=round(guven_skoru, 4),
-            fiyat_anomali_skoru=round(fiyat_skoru, 4),
-            hacim_patlamasi_skoru=round(hacim_skoru, 4),
-            volatilite_skoru=round(volatilite_skoru, 4),
-            pump_benzerlik_skoru=round(pump_skoru, 4),
-            fiyat_anomali_aciklama=fiyat_aciklama,
-            hacim_patlamasi_aciklama=hacim_aciklama,
-            volatilite_aciklama=volatilite_aciklama,
-            pump_benzerlik_aciklama=pump_aciklama,
-            fundamental_multiplier=round(multiplier, 4),
-            fundamental_aciklama=fund_aciklama,
             spek_gun_soft=int(spek_soft.sum()),
             spek_gun_hard=int(spek_hard.sum()),
             spek_gun_extreme=int(spek_extreme.sum()),
             spek_orani=round(float(spek_hard.mean()), 4),
             max_streak=max_streak,
             son_30g_spek_yuzdesi=round(son_30g_spek, 4),
-            hacim_spike_kati=round(hacim_spike_kati, 3),
-            entropi_agirliklari=entropi_dict,
             veri_gun_sayisi=len(df),
             ipo_listede=False,
             corporate_action_maskelendi=maskelenen,
@@ -365,7 +314,6 @@ class FinancialEngine:
             temel_kaynak=fundamental.get("data_source", "fallback"),
             temel_period=str(fundamental.get("period")) if fundamental.get("period") else None,
             kap_haber_sayisi=kap_haber_sayisi,
-            haber_carpani=round(haber_carpani, 4),
             kategori=kategori,
             anomaly_metrics=anomaly_metrics,
             piyasa_degeri=fundamental.get("piyasa_degeri"),
@@ -424,18 +372,10 @@ class FinancialEngine:
 
     def _ipo_result(self, ticker: str, gun_sayisi: int) -> SpekResult:
         return SpekResult(
-            ticker=ticker, spek_score=0.0, topsis_raw=0.0, guven_skoru=0.0,
-            fiyat_anomali_skoru=0.0, hacim_patlamasi_skoru=0.0,
-            volatilite_skoru=0.0, pump_benzerlik_skoru=0.0,
-            fiyat_anomali_aciklama="IPO: Yetersiz veri",
-            hacim_patlamasi_aciklama="IPO: Yetersiz veri",
-            volatilite_aciklama="IPO: Yetersiz veri",
-            pump_benzerlik_aciklama="IPO: Yetersiz veri",
-            fundamental_multiplier=1.0,
-            fundamental_aciklama="IPO: Piyasa keşif süreci devam ediyor",
+            ticker=ticker, guven_skoru=0.0,
             spek_gun_soft=0, spek_gun_hard=0, spek_gun_extreme=0,
             spek_orani=0.0, max_streak=0, son_30g_spek_yuzdesi=0.0,
-            hacim_spike_kati=1.0, veri_gun_sayisi=gun_sayisi, ipo_listede=True,
+            veri_gun_sayisi=gun_sayisi, ipo_listede=True,
         )
 
     def _xu100_yukle(self) -> None:
@@ -569,286 +509,6 @@ class FinancialEngine:
             r_streak=round(r_streak, 4),
             anomaly_activity_score=aas,
         )
-
-    def _fiyat_anomali_skoru(
-        self,
-        df: pd.DataFrame,
-        spek_hard: np.ndarray,
-        spek_extreme: np.ndarray,
-    ) -> tuple[float, str]:
-        close = df["Close"].to_numpy(dtype=float)
-        h_ret = np.concatenate([[0.0], np.diff(close) / (close[:-1] + 1e-10)])
-        spek_oran       = spek_hard.mean()
-        son30_spek      = spek_hard[-30:].mean() if len(spek_hard) >= 30 else spek_oran
-        extreme_oran    = spek_extreme.mean()
-        spek_g          = np.abs(h_ret[spek_hard])
-        ort_spek_getiri = spek_g.mean() if len(spek_g) > 0 else 0.0
-        if "High" in df.columns and "Low" in df.columns:
-            hl     = (df["High"].to_numpy(dtype=float) - df["Low"].to_numpy(dtype=float)) / (close + 1e-10)
-            spek_hl   = hl[spek_hard].mean()  if spek_hard.any()  else hl.mean()
-            normal_hl = hl[~spek_hard].mean() if (~spek_hard).any() else hl.mean()
-            hl_amp = spek_hl / (normal_hl + 1e-10)
-        else:
-            hl_amp = 1.0
-        raw = (
-            spek_oran    * 3.0 + son30_spek   * 2.5 + extreme_oran * 2.0 +
-            min(ort_spek_getiri / 0.15, 1.0) * 1.5 + min((hl_amp - 1.0) / 3.0, 1.0) * 1.0
-        )
-        return float(np.clip(raw, 0.0, 10.0)), (
-            f"Hard spek: {int(spek_hard.sum())} gun (%{spek_oran*100:.1f}), "
-            f"Extreme: {int(spek_extreme.sum())} gun, Son 30g: %{son30_spek*100:.1f}"
-        )
-
-    def _hacim_patlamasi_skoru(
-        self,
-        df: pd.DataFrame,
-        spek_hard: np.ndarray,
-        baseline_window: int = 50,
-        recent_window: int = 10,
-        baseline_offset: int = 10,
-    ) -> tuple[float, str]:
-        volume = df["Volume"].replace(0, np.nan).ffill().fillna(0).to_numpy(dtype=float)
-        if len(volume) < 20:
-            return 0.0, "Yetersiz veri"
-
-        # Bağımsız baseline — son baseline_offset gün dışarıda (kontaminasyon engellendi)
-        if len(volume) >= baseline_offset + baseline_window:
-            baseline = np.mean(volume[-(baseline_offset + baseline_window):-baseline_offset])
-        elif len(volume) > baseline_offset:
-            baseline = np.mean(volume[:-baseline_offset])
-        else:
-            baseline = np.mean(volume)
-        son_10g    = np.mean(volume[-recent_window:])
-        spike_kati = son_10g / (baseline + 1e-10)
-
-        if len(volume) >= 35:
-            onceki_ort = np.mean(volume[-35:-5])
-            onceki_std = np.std(volume[-35:-5])
-            son_5g     = np.mean(volume[-5:])
-            sessiz_patlama = son_5g / (onceki_ort + 1e-10) if onceki_std < onceki_ort * 0.3 else 1.0
-        else:
-            sessiz_patlama = 1.0
-
-        # spk_asim_oran: Son 60g penceresinde, baseline (son 10g hariç) eşiğini aşan gün sayısı
-        # Pencere ve baseline asimetrisi kasıtlı — son 10g'nin "baseline'a göre patlama" sıklığını ölçer
-        pencere_vol   = volume[-60:] if len(volume) >= 60 else volume
-        spk_asim_oran = np.sum(pencere_vol > baseline * self._esikler["hacim_spike_esigi"]) / len(pencere_vol)
-
-        if spek_hard.any() and (~spek_hard).any():
-            hacim_amp = np.mean(volume[spek_hard]) / (np.mean(volume[~spek_hard]) + 1e-10)
-        else:
-            hacim_amp = 1.0
-
-        raw = (
-            min(spike_kati / self._esikler["hacim_spike_esigi"], 1.0) * 3.5 +
-            min((sessiz_patlama - 1.0) / 4.0, 1.0) * 2.5 +
-            min(spk_asim_oran / 0.10, 1.0) * 2.0 +
-            min((hacim_amp - 1.0) / 3.0, 1.0) * 2.0
-        )
-        return float(np.clip(raw, 0.0, 10.0)), (
-            f"Anlik spike: {spike_kati:.1f}x (esik {self._esikler['hacim_spike_esigi']}x), "
-            f"SPK esik asimi: %{spk_asim_oran*100:.1f}"
-        )
-
-    def _hacim_spike_kati(self, df: pd.DataFrame) -> float:
-        volume = df["Volume"].replace(0, np.nan).ffill().fillna(0).to_numpy(dtype=float)
-        if len(volume) < 10:
-            return 1.0
-        baseline = np.mean(volume[-60:-10]) if len(volume) >= 60 else (np.mean(volume[:-10]) if len(volume) > 10 else np.mean(volume))
-        return float(np.mean(volume[-10:]) / (baseline + 1e-10))
-
-    def _volatilite_skoru(
-        self,
-        df: pd.DataFrame,
-        spek_hard: np.ndarray,
-        long_window: int = 60,
-        mid_window: int = 20,
-        short_window: int = 10,
-    ) -> tuple[float, str]:
-        close = df["Close"].to_numpy(dtype=float)
-        ret   = pd.Series(close).pct_change().fillna(0).to_numpy(dtype=float)
-        if "High" in df.columns and "Low" in df.columns:
-            hl_spread = np.mean((df["High"].to_numpy(dtype=float) - df["Low"].to_numpy(dtype=float)) / (close + 1e-10))
-        else:
-            hl_spread = np.std(ret) * 2.5  # Ölçek uyumu
-        std_20g = np.std(ret[-mid_window:]) if len(ret) >= mid_window else np.std(ret)
-        if len(ret) >= long_window:
-            ani_artis = (np.std(ret[-short_window:]) if len(ret) >= short_window else std_20g) / (np.std(ret[-long_window:]) + 1e-10)
-        else:
-            ani_artis = 1.0
-        if spek_hard.any() and (~spek_hard).any():
-            vol_amp = np.std(ret[spek_hard]) / (np.std(ret[~spek_hard]) + 1e-10)
-        else:
-            vol_amp = 1.0
-        raw = (
-            min(hl_spread / 0.06, 1.0) * 3.0 + min(std_20g / 0.04, 1.0) * 2.5 +
-            min((ani_artis - 1.0) / 2.0, 1.0) * 2.5 + min((vol_amp - 1.0) / 3.0, 1.0) * 2.0
-        )
-        return float(np.clip(raw, 0.0, 10.0)), (
-            f"HL spread: %{hl_spread*100:.2f}, 20g std: %{std_20g*100:.2f}, Ani artis: {ani_artis:.2f}x"
-        )
-
-    def _pump_benzerlik_skoru(self, df: pd.DataFrame, lookback: int = 180) -> tuple[float, str]:
-        window = df.iloc[-lookback:].copy() if len(df) >= lookback else df.copy()
-        if len(window) < 30:
-            return 0.0, "Yetersiz veri"
-        close  = window["Close"].to_numpy(dtype=float)
-        volume = window["Volume"].replace(0, np.nan).ffill().to_numpy(dtype=float)
-        peak_loc   = int(close.argmax())
-        pump_start = max(0, peak_loc - 60)
-
-        # pump_start <= 5 → baseline kirli, erken return
-        if peak_loc < 5 or pump_start <= 5:
-            return 0.0, "Zirve basta — P&D pattern yok"
-
-        pump_close = close[pump_start:peak_loc + 1]
-        dump_close = close[peak_loc:min(len(close), peak_loc + 61)]
-        if len(pump_close) < 5 or len(dump_close) < 3:
-            return 0.0, "Yetersiz pencere"
-        if close[pump_start] > 0 and (close[peak_loc] / close[pump_start]) < 2.0:
-            return 0.0, "Pump buyuklugu yetersiz (2x alti)"
-
-        baseline_vol = float(np.nanmean(volume[:pump_start]))
-        pump_vol     = float(np.nanmean(volume[pump_start:peak_loc + 1]))
-        dump_vol     = float(np.nanmean(volume[peak_loc:peak_loc + 61]))
-        pump_rets    = np.diff(pump_close) / (pump_close[:-1] + 1e-10)
-        dump_rets    = np.diff(dump_close) / (dump_close[:-1] + 1e-10)
-
-        candidates = [
-            (len(pump_close),                    self._esikler["pump_duration_mean"],    self._esikler["pump_duration_std"]),
-            (pump_vol / (baseline_vol + 1e-10),  self._esikler["volume_surge_mean"],     self._esikler["volume_surge_std"]),
-            (float(np.mean(pump_rets)) if len(pump_rets) > 0 else 0.0, self._esikler["pump_rate_mean"], self._esikler["pump_rate_std"]),
-            (float(np.mean(dump_rets)) if len(dump_rets) > 0 else 0.0, self._esikler["dump_rate_mean"], self._esikler["dump_rate_std"]),
-            (dump_vol / (pump_vol + 1e-10),      self._esikler["post_peak_volume_mean"], self._esikler["post_peak_volume_std"]),
-        ]
-        sims = [
-            float(np.exp(-0.5 * ((v - m) / s) ** 2)) if s > 1e-9 else (1.0 if abs(v - m) < 1e-6 else 0.0)
-            for v, m, s in candidates
-        ]
-        benzerlik    = float(np.mean(sims))
-        volume_surge = pump_vol / (baseline_vol + 1e-10)
-        return float(np.clip(benzerlik * 10.0, 0.0, 10.0)), (
-            f"P&D benzerlik: %{benzerlik*100:.1f}, Pump suresi: {len(pump_close)}g, Hacim surge: {volume_surge:.1f}x"
-        )
-
-    def _entropi_agirliklari(self, df: pd.DataFrame) -> tuple[np.ndarray, dict]:
-        """
-        Shannon entropi ağırlıklandırması.
-        4 bağımsız feature kullanılır:
-          - ret_abs       : mutlak günlük getiri (fiyat anomali proxy)
-          - volume_norm   : ortalamaya göre normalize hacim (hacim proxy)
-          - spike_freq    : rolling hacim eşiği aşım rate'i (volatilite/hacim spike proxy)
-          - hl_norm       : std-normalize edilmiş intraday range (pump intensity proxy)
-
-        Bu 4 feature farklı transformasyonlardan geldikleri için
-        Shannon diversity'leri farklı çıkar — entropi ağırlıkları
-        anlamlı bilgi katkısını yansıtır.
-        """
-        w      = min(60, len(df))
-        if w < 5:
-            # Çok az veri — eşit ağırlık
-            equal = np.full(4, 0.25)
-            return equal, {"fiyat_anomali": 0.25, "hacim_patlamasi": 0.25,
-                           "volatilite": 0.25, "pump_benzerlik": 0.25}
-
-        close  = df["Close"].to_numpy(dtype=float)[-w:]
-        volume = df["Volume"].replace(0, np.nan).ffill().fillna(0).to_numpy(dtype=float)[-w:]
-
-        # Feature 1: mutlak getiri
-        ret_abs = np.abs(np.concatenate([[0.0], np.diff(close) / (close[:-1] + 1e-10)]))
-
-        # Feature 2: normalize hacim
-        vol_mean_w  = np.mean(volume) + 1e-10
-        volume_norm = volume / vol_mean_w
-
-        # Feature 3: rolling spike frekansı (rank-bağımsız transformasyon)
-        # Son 60g içinde, her gün için "hacim son 20g ortalamasının N katı mı?" binary signal
-        if w >= 20:
-            roll_mean = pd.Series(volume).rolling(20, min_periods=5).mean().fillna(vol_mean_w).to_numpy()
-            spike_freq = (volume > roll_mean * 2.0).astype(float)
-        else:
-            spike_freq = (volume > vol_mean_w * 2.0).astype(float)
-
-        # Feature 4: std-normalize edilmiş intraday range (pump intensity)
-        ret_std = np.std(ret_abs) + 1e-10
-        if "High" in df.columns and "Low" in df.columns:
-            hl = (df["High"].to_numpy(dtype=float)[-w:] - df["Low"].to_numpy(dtype=float)[-w:]) / (close + 1e-10)
-            hl_norm = hl / (np.mean(hl) + 1e-10)
-        else:
-            hl_norm = ret_abs / ret_std
-
-        features = np.column_stack([ret_abs, volume_norm, spike_freq, hl_norm])
-
-        # Shannon entropi — temiz hesaplama (double computation kaldırıldı)
-        eps      = 1e-10
-        abs_f    = np.abs(features)
-        col_sums = abs_f.sum(axis=0)
-        col_sums = np.where(col_sums == 0, eps, col_sums)
-        p        = abs_f / col_sums
-        p        = np.where(p == 0, eps, p)
-
-        n         = features.shape[0]
-        entropy   = -np.sum(p * np.log(p), axis=0) / np.log(n + eps)
-        diversity = 1 - entropy
-        d_sum     = diversity.sum()
-        weights   = diversity / d_sum if d_sum > 0 else np.full(4, 0.25)
-
-        return weights, {
-            "fiyat_anomali":   round(float(weights[0]), 4),
-            "hacim_patlamasi": round(float(weights[1]), 4),
-            "volatilite":      round(float(weights[2]), 4),
-            "pump_benzerlik":  round(float(weights[3]), 4),
-        }
-
-    def _topsis(self, kriter_vektoru: np.ndarray, agirliklar: np.ndarray) -> float:
-        v        = kriter_vektoru / 10.0
-        weighted = v * agirliklar
-        d_iyi    = np.sqrt(np.sum((weighted - agirliklar) ** 2))
-        d_kotu   = np.sqrt(np.sum(weighted ** 2))
-        total    = d_iyi + d_kotu
-        return 0.0 if total < 1e-10 else float(d_kotu / total)
-
-    def _sektor_ref(self, sektor: Optional[str]) -> dict:
-        """Türkçe karakter toleranslı sektör eşleşmesi."""
-        if not sektor:
-            return _SEKTOR_DEFAULTS["DEFAULT"]
-        s_norm = _normalize_tr(sektor)
-        for key_norm, vals in _SEKTOR_DEFAULTS_NORMALIZED.items():
-            if key_norm != "DEFAULT" and key_norm in s_norm:
-                return vals
-        return _SEKTOR_DEFAULTS["DEFAULT"]
-
-    def _fundamental_multiplier(self, fundamental: dict, sektor: Optional[str]) -> tuple[float, str]:
-        sektor_ref = self._sektor_ref(sektor)
-        roe   = fundamental.get("roe")
-        pd_dd = fundamental.get("pd_dd")
-        fk    = fundamental.get("fk")
-        nkm   = fundamental.get("net_kar_marji")
-        guclu = 0
-        zayif = 0
-        if roe is not None:
-            if roe > sektor_ref["roe"] * 1.5:  guclu += 2
-            elif roe > sektor_ref["roe"]:       guclu += 1
-            elif roe < 0:                       zayif += 2
-            else:                               zayif += 1
-        if pd_dd is not None:
-            if pd_dd > sektor_ref["pd_dd"] * 2.0:   zayif += 2
-            elif pd_dd > sektor_ref["pd_dd"] * 1.3: zayif += 1
-            elif pd_dd < sektor_ref["pd_dd"] * 0.7: guclu += 1
-        if fk is not None and sektor_ref.get("fk", 0) > 0:
-            if fk > sektor_ref["fk"] * 2.5:   zayif += 2
-            elif fk > sektor_ref["fk"] * 1.5: zayif += 1
-            elif fk < sektor_ref["fk"] * 0.5: guclu += 1
-        if nkm is not None:
-            if nkm < 0:                                    zayif += 1
-            elif nkm > sektor_ref["net_kar_marji"] * 1.5: guclu += 1
-        net = guclu - zayif
-        if net >= 3:    return 0.65, f"Güçlü fundamental (net={net}): Hareketin bir kısmı açıklanabilir"
-        elif net == 2:  return 0.72, f"Orta-güçlü fundamental (net={net}): Kısmi temel destek"
-        elif net == 1:  return 0.80, f"Hafif fundamental destek (net={net})"
-        elif net == 0:  return 0.90, "Nötr fundamental: Hareket açıklanamıyor"
-        elif net == -1: return 0.95, f"Zayıf fundamental (net={net}): Temel desteklenmiyor"
-        else:           return 1.00, f"Çok zayıf fundamental (net={net}): Hareket tamamen spekülatif"
 
     def _fundamental_cek(self, ticker: str, sektor: Optional[str]) -> dict:
         global _FUNDAMENTAL_CACHE, _FUNDAMENTAL_CACHE_DATE
